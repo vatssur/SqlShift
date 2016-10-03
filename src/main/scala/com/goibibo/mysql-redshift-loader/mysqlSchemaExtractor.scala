@@ -37,7 +37,8 @@ object mysqlSchemaExtractor {
                                 option("driver", "com.mysql.jdbc.Driver").
                                 option("user", mysqlConfig.userName).
                                 option("password", mysqlConfig.password).
-                                option("fetchSize", "10000").
+                                option("fetchSize", "1000").
+                                option("fetchSize","1000"). //https://issues.apache.org/jira/browse/SPARK-11474
                                 load()
 
         val dataWithTypesFixed = tableDetails.validFields.filter(_.javaType.isDefined).foldLeft(data) {
