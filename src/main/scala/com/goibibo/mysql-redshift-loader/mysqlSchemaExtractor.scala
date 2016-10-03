@@ -44,7 +44,7 @@ object mysqlSchemaExtractor {
                         val minMaxRow = minMaxData(0)
                         if(minMaxRow(0) != null && minMaxRow(1) != null) {
                             val min = minMaxRow(0).asInstanceOf[Number].longValue
-                            val max = minMaxRow(0).asInstanceOf[Number].longValue
+                            val max = minMaxRow(1).asInstanceOf[Number].longValue
                             Some(PartitonDetails(primaryKey,min,max))
                         } else {
                             None
@@ -64,6 +64,7 @@ object mysqlSchemaExtractor {
         val dataReader =  getDataFrameReader(mysqlConfig, mysqlConfig.tableName, sqlContext)
         val partitionedReader = partitionDetails match {
             case Some(pd) => {
+		println(pd)
                 dataReader.
                     option("partitionColumn", pd.column.toString).
                     option("lowerBound", pd.lowerBound.toString).
@@ -72,7 +73,7 @@ object mysqlSchemaExtractor {
             }
             case None => { dataReader }
         }
-        val data            = dataReader.load().selectExpr(columns)
+        val data            = dataReader.load().selectExpr(tableDetails.validFields.map(_.fieldName):_*)
         val dataWithTypesFixed = tableDetails.validFields.filter(_.javaType.isDefined).foldLeft(data) {
             (df,dbField) => {
                 val modifiedCol = df.col(dbField.fieldName).cast(dbField.javaType.get)
@@ -131,7 +132,10 @@ object mysqlSchemaExtractor {
         return tableDetails
     }
 
-    def getJdbcUrl(conf:DBConfiguration) = s"jdbc:${conf.database}://${conf.hostname}:${conf.portNo}/${conf.db}"
+    def getJdbcUrl(conf:DBConfiguration) = {
+        val jdbcUrl = s"jdbc:${conf.database}://${conf.hostname}:${conf.portNo}/${conf.db}"
+        if(conf.database.toLowerCase == "mysql") jdbcUrl + "?zeroDateTimeBehavior=convertToNull" else jdbcUrl
+    }
     def getConnection(conf:DBConfiguration) = {
         val connectionProps = new Properties()
         connectionProps.put("user", conf.userName)
