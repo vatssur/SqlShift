@@ -30,10 +30,10 @@ object mysqlSchemaExtractor {
         val tableDetails = getValidFieldNames(mysqlConfig)
         val columns = tableDetails.validFields.map(_.fieldName).mkString(",")
         val sqlQuery = s"select ${columns} from ${mysqlConfig.tableName}"
-
+        println(sqlQuery)
         val data = sqlContext.read.format("jdbc").
                                 option("url", getJdbcUrl(mysqlConfig)).
-                                option("dbtable", s"${sqlQuery} AS A").
+                                option("dbtable", s"(${sqlQuery}) AS A").
                                 option("driver", "com.mysql.jdbc.Driver").
                                 option("user", mysqlConfig.userName).
                                 option("password", mysqlConfig.password).
@@ -57,10 +57,9 @@ object mysqlSchemaExtractor {
         sqlContext.sparkContext.hadoopConfiguration.set("fs.s3a.access.key", s3Conf.accessKey)
         sqlContext.sparkContext.hadoopConfiguration.set("fs.s3a.secret.key", s3Conf.secretKey)
 
-        val redshiftConnection  = getConnection(redshiftConf)
         val dropTableString     = getDropCommand(redshiftConf)
         val createTableString   = getCreateTableString( tableDetails, redshiftConf )
-        val preactions = dropTableString + " " + createTableString
+        val preactions = dropTableString + "\n" + createTableString
         val redshiftWriteMode = "append"
 
         df.repartition(partitions).write.
@@ -75,7 +74,6 @@ object mysqlSchemaExtractor {
           option("extracopyoptions", "TRUNCATECOLUMNS").
           mode(redshiftWriteMode).
           save()
-        
     }
 
     //Use this method to get the columns to extract
