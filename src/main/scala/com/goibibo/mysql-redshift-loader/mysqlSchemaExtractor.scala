@@ -35,8 +35,8 @@ object mysqlSchemaExtractor {
                 //Spark supports only long to break the table into multiple fields
                 //https://github.com/apache/spark/blob/branch-1.6/sql/core/src/main/scala/org/apache/spark/sql/execution/datasources/jdbc/JDBCRelation.scala#L33
                 if(typeOfPrimaryKey.startsWith("INT")) {
-                    val sqlQuery = s"""select min(${primaryKey}), max(${primaryKey}) 
-                                        from ${mysqlConfig.tableName}"""
+                    val sqlQuery = s"""(select min(${primaryKey}), max(${primaryKey}) 
+                                        from ${mysqlConfig.tableName}) AS A"""
                     val dataReader =  getDataFrameReader(mysqlConfig, sqlQuery, sqlContext)
                     val data       = dataReader.load()
                     val minMaxData = data.rdd.collect()
@@ -60,9 +60,8 @@ object mysqlSchemaExtractor {
         }
 
         val columns = tableDetails.validFields.map(_.fieldName).mkString(",")
-        val sqlQuery = s"select ${columns} from ${mysqlConfig.tableName}"
-        println(sqlQuery)
-        val dataReader =  getDataFrameReader(mysqlConfig, sqlQuery, sqlContext) 
+        //val sqlQuery = s"select ${columns} from ${mysqlConfig.tableName}"
+        val dataReader =  getDataFrameReader(mysqlConfig, mysqlConfig.tableName, sqlContext)
         val partitionedReader = partitionDetails match {
             case Some(pd) => {
                 dataReader.
@@ -73,8 +72,7 @@ object mysqlSchemaExtractor {
             }
             case None => { dataReader }
         }
-        val data        = dataReader.load()
-
+        val data            = dataReader.load().selectExpr(columns)
         val dataWithTypesFixed = tableDetails.validFields.filter(_.javaType.isDefined).foldLeft(data) {
             (df,dbField) => {
                 val modifiedCol = df.col(dbField.fieldName).cast(dbField.javaType.get)
@@ -87,12 +85,12 @@ object mysqlSchemaExtractor {
     def getDataFrameReader(mysqlConfig:DBConfiguration, sqlQuery:String, sqlContext:SQLContext) = {
         sqlContext.read.format("jdbc").
                                 option("url", getJdbcUrl(mysqlConfig)).
-                                option("dbtable", s"(${sqlQuery}) AS A").
+                                option("dbtable", sqlQuery).
                                 option("driver", "com.mysql.jdbc.Driver").
                                 option("user", mysqlConfig.userName).
                                 option("password", mysqlConfig.password).
-                                option("fetchSize", "100000").
-                                option("fetchSize","100000")//https://issues.apache.org/jira/browse/SPARK-11474
+                                option("fetchSize", "10000").
+                                option("fetchSize","10000")//https://issues.apache.org/jira/browse/SPARK-11474
     }
 
     //drop table if exists
