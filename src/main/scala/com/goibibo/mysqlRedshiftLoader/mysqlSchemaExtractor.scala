@@ -64,7 +64,7 @@ object mysqlSchemaExtractor {
         val dataReader =  getDataFrameReader(mysqlConfig, mysqlConfig.tableName, sqlContext)
         val partitionedReader = partitionDetails match {
             case Some(pd) => {
-		println(pd)
+        println(pd)
                 dataReader.
                     option("partitionColumn", pd.column.toString).
                     option("lowerBound", pd.lowerBound.toString).
@@ -301,5 +301,4 @@ object mysqlSchemaExtractor {
     }
 
 }
-
 

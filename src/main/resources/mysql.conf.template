@@ -1,0 +1,5 @@
+# MySQL DataBase configuration
+# mysql.hostname      =
+# mysql.portNo        = 3306
+# mysql.userName      =
+# mysql.password      =

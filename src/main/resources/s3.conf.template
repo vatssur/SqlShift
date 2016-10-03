@@ -1,0 +1,4 @@
+# S3 Bucket configuration
+# s3.location      =
+# s3.accessKey     =
+# s3.secretKey     =
