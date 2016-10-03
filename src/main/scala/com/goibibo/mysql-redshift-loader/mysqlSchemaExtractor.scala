@@ -11,8 +11,72 @@ import java.util.regex._
 import java.nio.charset.Charset
 import java.io._
 
+import org.apache.spark.{SparkContext, SparkConf}
+import org.apache.spark.SparkContext._
+import org.apache.spark.sql._
 
+/*
+--packages "org.apache.hadoop:hadoop-aws:2.7.2,com.databricks:spark-redshift_2.10:1.1.0,com.amazonaws:aws-java-sdk:1.7.4,mysql:mysql-connector-java:5.1.39"
+--jars=<Some-location>/RedshiftJDBC4-1.1.17.1017.jar
+
+*/
 object mysqlSchemaExtractor {
+
+    def loadToSpark(mysqlConfig:DBConfiguration, sqlContext:SQLContext)
+            (implicit crashOnInvalidType:Boolean):
+            (DataFrame, TableDetails) = {
+        import sqlContext.implicits._
+
+        val tableDetails = getValidFieldNames(mysqlConfig)
+        val columns = tableDetails.validFields.map(_.fieldName).mkString(",")
+        val sqlQuery = s"select ${columns} from ${mysqlConfig.tableName}"
+
+        val data = sqlContext.read.format("jdbc").
+                                option("url", getJdbcUrl(mysqlConfig)).
+                                option("dbtable", s"${sqlQuery} AS A").
+                                option("driver", "com.mysql.jdbc.Driver").
+                                option("user", mysqlConfig.userName).
+                                option("password", mysqlConfig.password).
+                                option("fetchSize", "10000").
+                                load()
+
+        val dataWithTypesFixed = tableDetails.validFields.filter(_.javaType.isDefined).foldLeft(data) {
+            (df,dbField) => {
+                val modifiedCol = df.col(dbField.fieldName).cast(dbField.javaType.get)
+                df.withColumn( dbField.fieldName, modifiedCol )
+            }
+        }
+        (dataWithTypesFixed, tableDetails)
+    }
+
+    //drop table if exists
+    //create table
+    def storeToRedshift(df:DataFrame, tableDetails:TableDetails, redshiftConf:DBConfiguration, s3Conf:S3Config, 
+        sqlContext:SQLContext) (partitions:Int = 12) = {
+
+        sqlContext.sparkContext.hadoopConfiguration.set("fs.s3a.access.key", s3Conf.accessKey)
+        sqlContext.sparkContext.hadoopConfiguration.set("fs.s3a.secret.key", s3Conf.secretKey)
+
+        val redshiftConnection  = getConnection(redshiftConf)
+        val dropTableString     = getDropCommand(redshiftConf)
+        val createTableString   = getCreateTableString( tableDetails, redshiftConf )
+        val preactions = dropTableString + " " + createTableString
+        val redshiftWriteMode = "append"
+
+        df.repartition(partitions).write.
+          format("com.databricks.spark.redshift").
+          option("url", getJdbcUrl(redshiftConf)).
+          option("user", redshiftConf.userName ).
+          option("password", redshiftConf.password).
+          option("jdbcdriver", "com.amazon.redshift.jdbc4.Driver").
+          option("preactions",preactions).
+          option("dbtable", s"${redshiftConf.schema}.${redshiftConf.tableName}").
+          option("tempdir", s3Conf.s3Location).
+          option("extracopyoptions", "TRUNCATECOLUMNS").
+          mode(redshiftWriteMode).
+          save()
+        
+    }
 
     //Use this method to get the columns to extract
     //Use sqoop 's --columns option to only request the valid columns
@@ -24,44 +88,12 @@ object mysqlSchemaExtractor {
         return tableDetails
     }
 
-    def getSqoopCommand(mysqlConfig:DBConfiguration, s3Conf:S3Config, parallalism:Int = 2)(implicit crashOnInvalidType:Boolean) = {
-        val tableDetails = getValidFieldNames(mysqlConfig)
-        val columns = tableDetails.validFields.map(_.fieldName).mkString(",")
-        val customJavMapping = tableDetails.validFields.filter(_.javaType.isDefined).map( d => (d.fieldName, d.javaType.get)).
-                                            map(p => s"${p._1}=${p._2}").mkString(",")
-        val mappingCommand = if(!customJavMapping.isEmpty) s"--map-column-java ${customJavMapping}" else ""
-        val (s3Bucket,s3Key) = getS3BucketAndKey(s3Conf.sqoopedDataKey)
-        val s3Location = s"s3a://${s3Conf.accessKey}:${s3Conf.secretKey}@${s3Bucket}/${s3Key}"
-        s"""sqoop import -Dfs.s3a.endpoint=s3.ap-south-1.amazonaws.com
-            |--options-file options_goibibo.txt
-            |--connect jdbc:${mysqlConfig.database}://${mysqlConfig.hostname}:${mysqlConfig.portNo}/${mysqlConfig.db}
-            |--table ${mysqlConfig.tableName} 
-            |--target-dir ${s3Location} 
-            |--as-avrodatafile -m ${parallalism} ${mappingCommand} 
-            |--columns ${columns} 
-        """.stripMargin.replaceAll("\\s*\\n"," ")
-    }
-
-    //This method will drop the table, create TABLE with DIST, SORTKEYS and proper REDSHIFT types
-    //Also loads data to the Redshift table from S3
-    def uploadDataToRedshift(mysqlConfig:DBConfiguration, redshiftConf:DBConfiguration, s3Conf:S3Config)
-        (implicit crashOnInvalidType:Boolean):Unit = {
-        val mysqlConnection     = getConnection(mysqlConfig)
-        val redshiftConnection  = getConnection(redshiftConf)
-
-        val tableDetails = getTableDetails( mysqlConnection, mysqlConfig )(crashOnInvalidType)
-        val createTableString = getCreateTableString( tableDetails, redshiftConf )
-        createRedshiftTable(redshiftConnection, redshiftConf, createTableString, true)
-        loadS3DataToRedshift(redshiftConnection, s3Conf, redshiftConf, tableDetails) 
-        mysqlConnection.close
-        redshiftConnection.close()
-    }
-
+    def getJdbcUrl(conf:DBConfiguration) = s"jdbc:${conf.database}://${conf.hostname}:${conf.portNo}/${conf.db}"
     def getConnection(conf:DBConfiguration) = {
         val connectionProps = new Properties()
         connectionProps.put("user", conf.userName)
         connectionProps.put("password", conf.password)
-        val connectionString = s"jdbc:${conf.database}://${conf.hostname}:${conf.portNo}/${conf.db}"    
+        val connectionString =  getJdbcUrl(conf)
         Class.forName("com.mysql.jdbc.Driver")
         Class.forName("com.amazon.redshift.jdbc4.Driver")
         DriverManager.getConnection(connectionString, connectionProps)
@@ -221,62 +253,6 @@ object mysqlSchemaExtractor {
         stmt.close()
     }
 
-    def makeRedshiftloadCommand(s3Config:S3Config, conf:DBConfiguration, jsonPathFileLocation:String) = {
-        val tableNameWithSchema = if(conf.schema != null && conf.schema != "" ) s"${conf.schema}.${conf.tableName}"
-        val s3Location = s"${s3Config.sqoopedDataKey}/".replaceAll("/+$","/")
-        s"""COPY ${tableNameWithSchema} FROM '${s3Location}' 
-        CREDENTIALS 'aws_access_key_id=${s3Config.accessKey};aws_secret_access_key=${s3Config.secretKey}'
-        FORMAT AS AVRO  '${jsonPathFileLocation}'
-        TRUNCATECOLUMNS; """
-    }
-
-    def loadS3DataToRedshift( con:Connection, s3Config:S3Config, conf:DBConfiguration, tableDetails:TableDetails) = {
-        val stmt                    = con.createStatement()
-        val jsonPathData            = makeJsonPath(tableDetails)
-        val jsonPathFileLocation    = writeJsonpathToS3(s3Config, jsonPathData, s"${conf.schema}.${conf.tableName}.txt")
-        stmt.executeUpdate(makeRedshiftloadCommand(s3Config,conf, jsonPathFileLocation))
-        stmt.close()
-    }
-
-    //"$['id']",
-    def makeJsonPath(tableDetails:TableDetails):String = {
-        val fields = tableDetails.validFields.map(d =>  "\"$['" + d.fieldName + "']\"").mkString(",\n\t")
-        s"""{
-        |    "jsonpaths": [
-        |        ${fields}
-        |    ]
-        |}""".stripMargin
-    }
-    def getS3BucketAndKey(s3Location:String):(String, String) = {
-        val p = Pattern.compile("s3://([\\w\\-\\._]+)/(.+)")
-        val m = p.matcher(s3Location)
-        if(!m.matches) {
-            throw new IllegalArgumentException(s"Invalid s3 key ${s3Location}, Couldn't find bucket and key")
-        } else {
-            val bucket = m.group(1)
-            val key = m.group(2)
-            (bucket, key)
-        }
-    }
-    
-    def writeJsonpathToS3(s3Conf:S3Config, data:String, fileName:String):String = {
-        val creds = new BasicAWSCredentials(s3Conf.accessKey, s3Conf.secretKey)
-        val s3Client = new AmazonS3Client(creds)
-        s3Client.setEndpoint("s3.ap-south-1.amazonaws.com")
-        val UTF8_CHARSET = Charset.forName("UTF-8");
-        val bytes = data.getBytes(UTF8_CHARSET)
-        val fileInputStream = new ByteArrayInputStream(bytes)
-        val metadata = new ObjectMetadata
-        metadata.setContentType("application/json")
-        metadata.setContentLength(bytes.length.toLong)
-        val (bucket,key) = getS3BucketAndKey(s3Conf.sqoopedDataKey)
-        val jsonPathResult = s"sqoop/jsonpathTemp/${fileName}".replaceAll("//","/")
-        val putObjectRequest = new PutObjectRequest(bucket, jsonPathResult, fileInputStream, metadata)
-        s3Client.putObject(putObjectRequest)
-        val outputLocation = s"s3://${bucket}/${jsonPathResult}"
-        println(s"Wrote JSONPATH at ${outputLocation}")
-        return outputLocation
-    }
 }
 
 
