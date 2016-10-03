@@ -34,10 +34,10 @@ object mysqlSchemaExtractor {
                 val typeOfPrimaryKey = tableDetails.validFields.filter(_.fieldName == primaryKey)(0).fieldType
                 //Spark supports only long to break the table into multiple fields
                 //https://github.com/apache/spark/blob/branch-1.6/sql/core/src/main/scala/org/apache/spark/sql/execution/datasources/jdbc/JDBCRelation.scala#L33
-                if(primaryKeyType.startsWith("INT")) {
+                if(typeOfPrimaryKey.startsWith("INT")) {
                     val sqlQuery = s"""select min(${primaryKey}), max(${primaryKey}) 
                                         from ${mysqlConfig.tableName}"""
-                    val dataReader =  getDataFrameReader(mysqlConfig, sqlQuery)
+                    val dataReader =  getDataFrameReader(mysqlConfig, sqlQuery, sqlContext)
                     val data       = dataReader.load()
                     val minMaxData = data.rdd.collect()
                     if(minMaxData.size == 1) {
@@ -62,7 +62,7 @@ object mysqlSchemaExtractor {
         val columns = tableDetails.validFields.map(_.fieldName).mkString(",")
         val sqlQuery = s"select ${columns} from ${mysqlConfig.tableName}"
         println(sqlQuery)
-        val dataReader =  getDataFrameReader(mysqlConfig, sqlQuery) 
+        val dataReader =  getDataFrameReader(mysqlConfig, sqlQuery, sqlContext) 
         val partitionedReader = partitionDetails match {
             case Some(pd) => {
                 dataReader.
@@ -84,7 +84,7 @@ object mysqlSchemaExtractor {
         (dataWithTypesFixed, tableDetails)
     }
 
-    def getDataFrameReader(mysqlConfig:DBConfiguration, sqlQuery:String) = {
+    def getDataFrameReader(mysqlConfig:DBConfiguration, sqlQuery:String, sqlContext:SQLContext) = {
         sqlContext.read.format("jdbc").
                                 option("url", getJdbcUrl(mysqlConfig)).
                                 option("dbtable", s"(${sqlQuery}) AS A").
