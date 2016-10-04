@@ -29,7 +29,7 @@ object mysqlSchemaExtractor {
 
         val tableDetails = getValidFieldNames(mysqlConfig)
 
-        val partitionDetails:Option[PartitonDetails] = tableDetails.distributionKey match {
+        val partitionDetails:Option[Seq[String]] = tableDetails.distributionKey match {
             case Some(primaryKey) => {
                 val typeOfPrimaryKey = tableDetails.validFields.filter(_.fieldName == primaryKey)(0).fieldType
                 //Spark supports only long to break the table into multiple fields
@@ -43,9 +43,10 @@ object mysqlSchemaExtractor {
                     if(minMaxData.size == 1) {
                         val minMaxRow = minMaxData(0)
                         if(minMaxRow(0) != null && minMaxRow(1) != null) {
-                            val min = minMaxRow(0).asInstanceOf[Number].longValue
-                            val max = minMaxRow(1).asInstanceOf[Number].longValue
-                            Some(PartitonDetails(primaryKey,min,max))
+                            val maxPartitions = 12
+                            val predicates = (0 to (maxPartitions-1)).toList.map(n => s"(${primaryKey} mod ${maxPartitions}) = ${n}")
+                            println(predicates)
+			    Some(predicates)
                         } else {
                             None
                         }
@@ -62,18 +63,23 @@ object mysqlSchemaExtractor {
         val columns = tableDetails.validFields.map(_.fieldName).mkString(",")
         //val sqlQuery = s"select ${columns} from ${mysqlConfig.tableName}"
         val dataReader =  getDataFrameReader(mysqlConfig, mysqlConfig.tableName, sqlContext)
-        val partitionedReader = partitionDetails match {
-            case Some(pd) => {
-        println(pd)
-                dataReader.
-                    option("partitionColumn", pd.column.toString).
-                    option("lowerBound", pd.lowerBound.toString).
-                    option("upperBound", pd.upperBound.toString).
-                    option("numPartitions", 12.toString)
+        val partitionedReader:DataFrame = partitionDetails match {
+            case Some(predicates) => {
+                val properties = new Properties()
+                properties.setProperty("user", mysqlConfig.userName)
+                properties.setProperty("password", mysqlConfig.password)
+
+                sqlContext.read.
+                    option("driver", "com.mysql.jdbc.Driver").
+                    option("fetchSize", "1000").
+                    option("fetchsize", "1000").
+                    option("user", mysqlConfig.userName).
+                    option("password", mysqlConfig.password).
+                    jdbc(getJdbcUrl(mysqlConfig), mysqlConfig.tableName, predicates.toArray,properties)
             }
-            case None => { dataReader }
+            case None => { dataReader.load }
         }
-        val data            = dataReader.load().selectExpr(tableDetails.validFields.map(_.fieldName):_*)
+        val data            = partitionedReader.selectExpr(tableDetails.validFields.map(_.fieldName):_*)
         val dataWithTypesFixed = tableDetails.validFields.filter(_.javaType.isDefined).foldLeft(data) {
             (df,dbField) => {
                 val modifiedCol = df.col(dbField.fieldName).cast(dbField.javaType.get)
@@ -120,8 +126,7 @@ object mysqlSchemaExtractor {
           mode(redshiftWriteMode).
           save()
     }
-    
-    case class PartitonDetails(column: String, lowerBound: Long, upperBound: Long)
+
     //Use this method to get the columns to extract
     //Use sqoop 's --columns option to only request the valid columns
     //Use sqoop 's --map-column-java option to request for the fields that needs typeChange
@@ -149,7 +154,7 @@ object mysqlSchemaExtractor {
     case class RedshiftType(typeName:String, hasPrecision:Boolean = false, hasScale:Boolean = false, precisionMultiplier:Int = 1)
 
     val mysqlToRedshiftTypeConverter = {
-        val maxVarcharSize = 65536
+        val maxVarcharSize = 65535
         Map( 
             "TINYINT"               -> RedshiftType("INT2"), 
             "TINYINT UNSIGNED"      -> RedshiftType("INT2"),
@@ -218,13 +223,18 @@ object mysqlSchemaExtractor {
         val redshiftType =  if(columnType.toUpperCase == "TINYINT" && precision == 1) RedshiftType("BOOLEAN")
                             else mysqlToRedshiftTypeConverter(columnType.toUpperCase)
         //typeName:String, hasPrecision:Boolean = false, hasScale:Boolean = false, precisionMultiplier:Int
-        if(redshiftType.hasPrecision && redshiftType.hasScale) {
+        val result = if(redshiftType.hasPrecision && redshiftType.hasScale) {
             s"${redshiftType.typeName}( ${precision * redshiftType.precisionMultiplier}, ${scale} )"
         } else if( redshiftType.hasPrecision ){
-            s"${redshiftType.typeName}( ${precision * redshiftType.precisionMultiplier} )"
+	    var redshiftPrecision = precision * redshiftType.precisionMultiplier
+	    if(redshiftPrecision < 0 )
+		redshiftPrecision = 65535
+            s"${redshiftType.typeName}( ${redshiftPrecision} )"
         } else {
             redshiftType.typeName
         }
+	println(s"Converted ${columnType}, ${precision} ${scale} to ${result}")
+	result
     }
 
     def getTableDetails(con:Connection, conf:DBConfiguration)
