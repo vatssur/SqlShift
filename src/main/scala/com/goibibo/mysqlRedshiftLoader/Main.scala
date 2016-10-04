@@ -71,7 +71,7 @@ object Main {
 
     def run(configurations: Seq[AppConfiguration]): Unit = {
         logger.info("Starting spark context...")
-        val sparkConf: SparkConf = new SparkConf().setAppName("RDS to Redshift DataPipeline").setMaster("local[*]")
+        val sparkConf: SparkConf = new SparkConf().setAppName("RDS to Redshift DataPipeline")
         val sc: SparkContext = new SparkContext(sparkConf)
         val sqlContext: SQLContext = new SQLContext(sc)
 
