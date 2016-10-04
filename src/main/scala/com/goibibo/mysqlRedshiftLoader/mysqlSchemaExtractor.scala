@@ -44,8 +44,9 @@ object mysqlSchemaExtractor {
                         val minMaxRow = minMaxData(0)
                         if(minMaxRow(0) != null && minMaxRow(1) != null) {
                             val maxPartitions = 12
-                            val predicates = (0 to (maxPartitions-1)).toList.map(n => s"(${primaryKey} mod ${maxPartitions}) == ${n}")
-                            Some(predicates)
+                            val predicates = (0 to (maxPartitions-1)).toList.map(n => s"(${primaryKey} mod ${maxPartitions}) = ${n}")
+                            println(predicates)
+			    Some(predicates)
                         } else {
                             None
                         }
@@ -62,7 +63,7 @@ object mysqlSchemaExtractor {
         val columns = tableDetails.validFields.map(_.fieldName).mkString(",")
         //val sqlQuery = s"select ${columns} from ${mysqlConfig.tableName}"
         val dataReader =  getDataFrameReader(mysqlConfig, mysqlConfig.tableName, sqlContext)
-        val partitionedReader = partitionDetails match {
+        val partitionedReader:DataFrame = partitionDetails match {
             case Some(predicates) => {
                 val properties = new Properties()
                 properties.setProperty("user", mysqlConfig.userName)
@@ -76,9 +77,9 @@ object mysqlSchemaExtractor {
                     option("password", mysqlConfig.password).
                     jdbc(getJdbcUrl(mysqlConfig), mysqlConfig.tableName, predicates.toArray,properties)
             }
-            case None => { dataReader }
+            case None => { dataReader.load }
         }
-        val data            = dataReader.load().selectExpr(tableDetails.validFields.map(_.fieldName):_*)
+        val data            = partitionedReader.selectExpr(tableDetails.validFields.map(_.fieldName):_*)
         val dataWithTypesFixed = tableDetails.validFields.filter(_.javaType.isDefined).foldLeft(data) {
             (df,dbField) => {
                 val modifiedCol = df.col(dbField.fieldName).cast(dbField.javaType.get)
@@ -153,7 +154,7 @@ object mysqlSchemaExtractor {
     case class RedshiftType(typeName:String, hasPrecision:Boolean = false, hasScale:Boolean = false, precisionMultiplier:Int = 1)
 
     val mysqlToRedshiftTypeConverter = {
-        val maxVarcharSize = 65536
+        val maxVarcharSize = 65535
         Map( 
             "TINYINT"               -> RedshiftType("INT2"), 
             "TINYINT UNSIGNED"      -> RedshiftType("INT2"),
@@ -222,13 +223,18 @@ object mysqlSchemaExtractor {
         val redshiftType =  if(columnType.toUpperCase == "TINYINT" && precision == 1) RedshiftType("BOOLEAN")
                             else mysqlToRedshiftTypeConverter(columnType.toUpperCase)
         //typeName:String, hasPrecision:Boolean = false, hasScale:Boolean = false, precisionMultiplier:Int
-        if(redshiftType.hasPrecision && redshiftType.hasScale) {
+        val result = if(redshiftType.hasPrecision && redshiftType.hasScale) {
             s"${redshiftType.typeName}( ${precision * redshiftType.precisionMultiplier}, ${scale} )"
         } else if( redshiftType.hasPrecision ){
-            s"${redshiftType.typeName}( ${precision * redshiftType.precisionMultiplier} )"
+	    var redshiftPrecision = precision * redshiftType.precisionMultiplier
+	    if(redshiftPrecision < 0 )
+		redshiftPrecision = 65535
+            s"${redshiftType.typeName}( ${redshiftPrecision} )"
         } else {
             redshiftType.typeName
         }
+	println(s"Converted ${columnType}, ${precision} ${scale} to ${result}")
+	result
     }
 
     def getTableDetails(con:Connection, conf:DBConfiguration)
