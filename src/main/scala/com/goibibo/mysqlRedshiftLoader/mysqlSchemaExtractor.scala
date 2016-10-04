@@ -29,7 +29,7 @@ object mysqlSchemaExtractor {
 
         val tableDetails = getValidFieldNames(mysqlConfig)
 
-        val partitionDetails:Option[PartitonDetails] = tableDetails.distributionKey match {
+        val partitionDetails:Option[Seq[String]] = tableDetails.distributionKey match {
             case Some(primaryKey) => {
                 val typeOfPrimaryKey = tableDetails.validFields.filter(_.fieldName == primaryKey)(0).fieldType
                 //Spark supports only long to break the table into multiple fields
@@ -43,9 +43,9 @@ object mysqlSchemaExtractor {
                     if(minMaxData.size == 1) {
                         val minMaxRow = minMaxData(0)
                         if(minMaxRow(0) != null && minMaxRow(1) != null) {
-                            val min = minMaxRow(0).asInstanceOf[Number].longValue
-                            val max = minMaxRow(1).asInstanceOf[Number].longValue
-                            Some(PartitonDetails(primaryKey,min,max))
+                            val maxPartitions = 12
+                            val predicates = (0 to (maxPartitions-1)).toList.map(n => s"(${primaryKey} mod ${maxPartitions}) == ${n}")
+                            Some(predicates)
                         } else {
                             None
                         }
@@ -63,13 +63,18 @@ object mysqlSchemaExtractor {
         //val sqlQuery = s"select ${columns} from ${mysqlConfig.tableName}"
         val dataReader =  getDataFrameReader(mysqlConfig, mysqlConfig.tableName, sqlContext)
         val partitionedReader = partitionDetails match {
-            case Some(pd) => {
-        println(pd)
-                dataReader.
-                    option("partitionColumn", pd.column.toString).
-                    option("lowerBound", pd.lowerBound.toString).
-                    option("upperBound", pd.upperBound.toString).
-                    option("numPartitions", 12.toString)
+            case Some(predicates) => {
+                val properties = new Properties()
+                properties.setProperty("user", mysqlConfig.userName)
+                properties.setProperty("password", mysqlConfig.password)
+
+                sqlContext.read.
+                    option("driver", "com.mysql.jdbc.Driver").
+                    option("fetchSize", "1000").
+                    option("fetchsize", "1000").
+                    option("user", mysqlConfig.userName).
+                    option("password", mysqlConfig.password).
+                    jdbc(getJdbcUrl(mysqlConfig), mysqlConfig.tableName, predicates.toArray,properties)
             }
             case None => { dataReader }
         }
@@ -120,8 +125,7 @@ object mysqlSchemaExtractor {
           mode(redshiftWriteMode).
           save()
     }
-    
-    case class PartitonDetails(column: String, lowerBound: Long, upperBound: Long)
+
     //Use this method to get the columns to extract
     //Use sqoop 's --columns option to only request the valid columns
     //Use sqoop 's --map-column-java option to request for the fields that needs typeChange
