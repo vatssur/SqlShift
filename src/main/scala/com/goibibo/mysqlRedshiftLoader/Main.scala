@@ -82,10 +82,17 @@ object Main {
 
         for (configuration <- configurations) {
             logger.info("Following is configuration\n{}", configuration.toString)
-            val loadedTable: (DataFrame, TableDetails) = mysqlSchemaExtractor.loadToSpark(configuration.mysqlConf,
-                sqlContext)
-            mysqlSchemaExtractor.storeToRedshift(loadedTable._1, loadedTable._2, configuration.redshiftConf,
-                configuration.s3Conf, sqlContext)(12)
+            try {
+                val loadedTable: (DataFrame, TableDetails) = mysqlSchemaExtractor.loadToSpark(configuration.mysqlConf,
+                    sqlContext)
+                mysqlSchemaExtractor.storeToRedshift(loadedTable._1, loadedTable._2, configuration.redshiftConf,
+                    configuration.s3Conf, sqlContext)(12)
+                logger.info("Successful transfer for configuration\n{}", configuration.toString)
+            } catch {
+                case e: Exception =>
+                    logger.info("Transfer Failed for configuration: {}", configuration)
+                    logger.error("Stack Trace: {}", e.fillInStackTrace())
+            }
         }
     }
 
