@@ -218,8 +218,8 @@ object mysqlSchemaExtractor {
             s"${redshiftType.typeName}( ${precision * redshiftType.precisionMultiplier}, ${scale} )"
         } else if( redshiftType.hasPrecision ){
 	    var redshiftPrecision = precision * redshiftType.precisionMultiplier
-	    if(redshiftPrecision < 0 )
-		redshiftPrecision = 65535
+	    if(redshiftPrecision < 0 or redshiftPrecision > 65535)
+            redshiftPrecision = 65535
             s"${redshiftType.typeName}( ${redshiftPrecision} )"
         } else {
             redshiftType.typeName
