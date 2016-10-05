@@ -62,8 +62,8 @@ object mysqlSchemaExtractor {
 
                 sqlContext.read.
                         option("driver", "com.mysql.jdbc.Driver").
-                        option("fetchSize", "1000").
-                        option("fetchsize", "1000").
+                        option("fetchSize", Integer.MIN_VALUE.toString).
+                        option("fetchsize", Integer.MIN_VALUE.toString).
                         option("user", mysqlConfig.userName).
                         option("password", mysqlConfig.password).
                         jdbc(getJdbcUrl(mysqlConfig), mysqlConfig.tableName, predicates.toArray, properties)
@@ -86,8 +86,8 @@ object mysqlSchemaExtractor {
                 option("driver", "com.mysql.jdbc.Driver").
                 option("user", mysqlConfig.userName).
                 option("password", mysqlConfig.password).
-                option("fetchSize", "10000").
-                option("fetchSize", "10000") //https://issues.apache.org/jira/browse/SPARK-11474
+                option("fetchSize", Integer.MIN_VALUE.toString).
+                option("fetchsize", Integer.MIN_VALUE.toString) //https://issues.apache.org/jira/browse/SPARK-11474
     }
 
     //drop table if exists
