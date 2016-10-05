@@ -4,21 +4,33 @@ import java.sql._
 import java.util.Properties
 
 import org.apache.spark.sql._
+import org.slf4j.{Logger, LoggerFactory}
 
 import scala.collection.immutable.{Map, Seq, Set}
 
 /*
 --packages "org.apache.hadoop:hadoop-aws:2.7.2,com.databricks:spark-redshift_2.10:1.1.0,com.amazonaws:aws-java-sdk:1.7.4,mysql:mysql-connector-java:5.1.39"
 --jars=<Some-location>/RedshiftJDBC4-1.1.17.1017.jar
-
 */
-object mysqlSchemaExtractor {
 
+object mysqlSchemaExtractor {
+    private val logger: Logger = LoggerFactory.getLogger(mysqlSchemaExtractor.getClass)
+
+    /**
+      * Load table in spark.
+      *
+      * @param mysqlConfig
+      * @param sqlContext
+      * @param crashOnInvalidType
+      * @return
+      */
     def loadToSpark(mysqlConfig: DBConfiguration, sqlContext: SQLContext)
                    (implicit crashOnInvalidType: Boolean):
     (DataFrame, TableDetails) = {
-
-        val tableDetails = getValidFieldNames(mysqlConfig)
+        logger.info("Loading table to Spark from MySQL")
+        logger.info("MySQL details: \n{}", mysqlConfig.toString)
+        val tableDetails: TableDetails = getValidFieldNames(mysqlConfig)
+        logger.info("Table details: \n{}", tableDetails.toString)
 
         val partitionDetails: Option[Seq[String]] = tableDetails.distributionKey match {
             case Some(primaryKey) =>
@@ -37,7 +49,7 @@ object mysqlSchemaExtractor {
                         if (minMaxRow(0) != null && minMaxRow(1) != null) {
                             val maxPartitions = 12
                             val predicates = (0 until maxPartitions).toList.map(n => s"($primaryKey mod $maxPartitions) = $n")
-                            println(predicates)
+                            logger.info(s"$predicates")
                             Some(predicates)
                         } else {
                             None
@@ -79,22 +91,22 @@ object mysqlSchemaExtractor {
         (dataWithTypesFixed, tableDetails)
     }
 
-    def getDataFrameReader(mysqlConfig: DBConfiguration, sqlQuery: String, sqlContext: SQLContext) = {
-        sqlContext.read.format("jdbc").
-                option("url", getJdbcUrl(mysqlConfig)).
-                option("dbtable", sqlQuery).
-                option("driver", "com.mysql.jdbc.Driver").
-                option("user", mysqlConfig.userName).
-                option("password", mysqlConfig.password).
-                option("fetchSize", Integer.MIN_VALUE.toString).
-                option("fetchsize", Integer.MIN_VALUE.toString) //https://issues.apache.org/jira/browse/SPARK-11474
-    }
-
-    //drop table if exists
-    //create table
+    /**
+      * Store Dataframe to Redshift table. Drop table if exists.
+      * It table doesn't exist it will create table.
+      *
+      * @param df         dataframe
+      * @param tableDetails
+      * @param redshiftConf
+      * @param s3Conf
+      * @param sqlContext
+      * @param partitions Number of partitions
+      */
     def storeToRedshift(df: DataFrame, tableDetails: TableDetails, redshiftConf: DBConfiguration, s3Conf: S3Config,
                         sqlContext: SQLContext)(partitions: Int = 12) = {
 
+        logger.info("Storing to Redshift")
+        logger.info("Redshift Details: \n{}", redshiftConf.toString)
         sqlContext.sparkContext.hadoopConfiguration.set("fs.s3a.access.key", s3Conf.accessKey)
         sqlContext.sparkContext.hadoopConfiguration.set("fs.s3a.secret.key", s3Conf.secretKey)
 
@@ -102,6 +114,7 @@ object mysqlSchemaExtractor {
         val createTableString = getCreateTableString(tableDetails, redshiftConf)
         val preactions = dropTableString + "\n" + createTableString
         val redshiftWriteMode = "append"
+        logger.info("Write mode: {}", redshiftWriteMode)
 
         df.repartition(partitions).write.
                 format("com.databricks.spark.redshift").
@@ -115,6 +128,17 @@ object mysqlSchemaExtractor {
                 option("extracopyoptions", "TRUNCATECOLUMNS").
                 mode(redshiftWriteMode).
                 save()
+    }
+
+    def getDataFrameReader(mysqlConfig: DBConfiguration, sqlQuery: String, sqlContext: SQLContext): DataFrameReader = {
+        sqlContext.read.format("jdbc").
+                option("url", getJdbcUrl(mysqlConfig)).
+                option("dbtable", sqlQuery).
+                option("driver", "com.mysql.jdbc.Driver").
+                option("user", mysqlConfig.userName).
+                option("password", mysqlConfig.password).
+                option("fetchSize", Integer.MIN_VALUE.toString).
+                option("fetchsize", Integer.MIN_VALUE.toString) //https://issues.apache.org/jira/browse/SPARK-11474
     }
 
     //Use this method to get the columns to extract
@@ -224,7 +248,7 @@ object mysqlSchemaExtractor {
         } else {
             redshiftType.typeName
         }
-        println(s"Converted $columnType, $precision $scale to $result")
+        logger.info(s"Converted type: $columnType, precision: $precision, scale:$scale to $result")
         result
     }
 
@@ -259,7 +283,8 @@ object mysqlSchemaExtractor {
                 invalidFields = invalidFields :+ DBField(rsmd.getColumnName(i), columnType)
             }
             setColumns = setColumns + rsmd.getColumnName(i).toLowerCase
-            print(s"${rsmd.getColumnName(i)} ${rsmd.getColumnTypeName(i)} ${rsmd.getPrecision(i)} ${rsmd.getScale(i)}\n")
+            logger.info(s" column: ${rsmd.getColumnName(i)}, type: ${rsmd.getColumnTypeName(i)}," +
+                    s" precision: ${rsmd.getPrecision(i)}, scale:${rsmd.getScale(i)}\n")
         }
         rs.close()
         stmt.close()
