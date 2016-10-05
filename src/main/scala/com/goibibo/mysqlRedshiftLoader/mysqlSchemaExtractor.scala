@@ -2,18 +2,10 @@ package com.goibibo.mysqlRedshiftLoader
 
 import java.sql._
 import java.util.Properties
-import scala.collection.immutable.{Seq,Set,Map}
-import com.amazonaws.auth.BasicAWSCredentials
-import com.amazonaws.services.s3.AmazonS3Client
-import com.amazonaws.services.s3.model.{ObjectMetadata,PutObjectRequest}
-import java.util.regex._
 
-import java.nio.charset.Charset
-import java.io._
-
-import org.apache.spark.{SparkContext, SparkConf}
-import org.apache.spark.SparkContext._
 import org.apache.spark.sql._
+
+import scala.collection.immutable.{Map, Seq, Set}
 
 /*
 --packages "org.apache.hadoop:hadoop-aws:2.7.2,com.databricks:spark-redshift_2.10:1.1.0,com.amazonaws:aws-java-sdk:1.7.4,mysql:mysql-connector-java:5.1.39"
@@ -25,7 +17,6 @@ object mysqlSchemaExtractor {
     def loadToSpark(mysqlConfig:DBConfiguration, sqlContext:SQLContext)
             (implicit crashOnInvalidType:Boolean):
             (DataFrame, TableDetails) = {
-        import sqlContext.implicits._
 
         val tableDetails = getValidFieldNames(mysqlConfig)
 
@@ -216,7 +207,7 @@ object mysqlSchemaExtractor {
             }
         }
         resIndexes.close()
-        setIndexedColumns.toIndexedSeq;
+        setIndexedColumns.toIndexedSeq.take(8)
     }
 
     def convertMySqlTypeToRedshiftType(columnType:String, precision:Int, scale:Int) =  {

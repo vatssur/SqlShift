@@ -74,7 +74,6 @@ object Main {
         val sparkConf: SparkConf = new SparkConf().setAppName("RDS to Redshift DataPipeline")
         val sc: SparkContext = new SparkContext(sparkConf)
         val sqlContext: SQLContext = new SQLContext(sc)
-
         System.setProperty("com.amazonaws.services.s3.enableV4", "true")
         sc.hadoopConfiguration.set("fs.s3a.endpoint", "s3.ap-south-1.amazonaws.com")
 
@@ -91,7 +90,7 @@ object Main {
             } catch {
                 case e: Exception =>
                     logger.info("Transfer Failed for configuration: {}", configuration)
-                    logger.error("Stack Trace: {}", e.fillInStackTrace())
+                    logger.error("Stack Trace: ", e.fillInStackTrace())
             }
         }
     }
