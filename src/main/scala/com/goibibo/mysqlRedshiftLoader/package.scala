@@ -44,7 +44,27 @@ package object mysqlRedshiftLoader {
         }
     }
 
-    case class AppParams(mysqlConfPath: String, s3ConfPath: String, redshiftConfPath: String, tableDetailsPath: String)
+    //In the case of IncrementalSettings shallCreateTable should be false by default
+    //whereCondition shall not be wrapped with brackets ()
+    //Also whereCondition shall not be empty and shall be valid SQL
+    case class IncrementalSettings(whereCondition:String, shallDeletePastRecords:Boolean = false, 
+                                    shallVaccumAfterLoad:Boolean = false)
+    
+    //Defaults, 
+    //If shallSplit = None then shallSplit = true
+    
+    //If shallCreateTable = None && incrementalSettings = None
+    //    then shallCreateTable is true
+    //If shallCreateTable = None && incrementalSettings != None
+    //    then shallCreateTable is false
+    //If shallCreateTable != None
+    //    shallCreateTable = shallCreateTable.get
+
+    case class InternalConfig( shallSplit:Option[Boolean] = None, shallCreateTable:Option[Boolean] = None, 
+        incrementalSettings:Option[IncrementalSettings] = None )
+
+    case class AppParams(mysqlConfPath: String, s3ConfPath: String, 
+        redshiftConfPath: String, tableDetailsPath: String, )
 
     case class AppConfiguration(mysqlConf: DBConfiguration, redshiftConf: DBConfiguration, s3Conf: S3Config) {
         override def toString: String = {

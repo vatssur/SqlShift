@@ -24,7 +24,7 @@ object mysqlSchemaExtractor {
       * @param crashOnInvalidType
       * @return
       */
-    def loadToSpark(mysqlConfig: DBConfiguration, sqlContext: SQLContext)
+    def loadToSpark(mysqlConfig: DBConfiguration, sqlContext: SQLContext, internalConfig:InternalConfig = new InternalConfig)
                    (implicit crashOnInvalidType: Boolean):
     (DataFrame, TableDetails) = {
         logger.info("Loading table to Spark from MySQL")
@@ -32,40 +32,55 @@ object mysqlSchemaExtractor {
         val tableDetails: TableDetails = getValidFieldNames(mysqlConfig)
         logger.info("Table details: \n{}", tableDetails.toString)
 
-        val partitionDetails: Option[Seq[String]] = tableDetails.distributionKey match {
-            case Some(primaryKey) =>
-                val typeOfPrimaryKey = tableDetails.validFields.filter(_.fieldName == primaryKey).head.fieldType
-                //Spark supports only long to break the table into multiple fields
-                //https://github.com/apache/spark/blob/branch-1.6/sql/core/src/main/scala/org/apache/spark/sql/execution/datasources/jdbc/JDBCRelation.scala#L33
-                if (typeOfPrimaryKey.startsWith("INT")) {
-                    val sqlQuery =
-                        s"""(select min($primaryKey), max($primaryKey)
-                                        from ${mysqlConfig.tableName}) AS A"""
-                    val dataReader = getDataFrameReader(mysqlConfig, sqlQuery, sqlContext)
-                    val data = dataReader.load()
-                    val minMaxData = data.rdd.collect()
-                    if (minMaxData.length == 1) {
-                        val minMaxRow = minMaxData(0)
-                        if (minMaxRow(0) != null && minMaxRow(1) != null) {
-                            val maxPartitions = 12
-                            val predicates = (0 until maxPartitions).toList.map(n => s"($primaryKey mod $maxPartitions) = $n")
-                            logger.info(s"$predicates")
-                            Some(predicates)
+        val partitionDetails: Option[Seq[String]] = internalConfig.shallSplit match {
+                case Some(false) => {
+                    logger.info("shallSplit is false")
+                    None
+                }
+                case _  => {
+                    tableDetails.distributionKey match {
+                    case Some(primaryKey) =>
+                        val typeOfPrimaryKey = tableDetails.validFields.filter(_.fieldName == primaryKey).head.fieldType
+                        //Spark supports only long to break the table into multiple fields
+                        //https://github.com/apache/spark/blob/branch-1.6/sql/core/src/main/scala/org/apache/spark/sql/execution/datasources/jdbc/JDBCRelation.scala#L33
+                        if (typeOfPrimaryKey.startsWith("INT")) {
+                            
+                            val whereCondition = internalConfig.incrementalSettings match {
+                                case Some(incrementalSettings) => incrementalSettings.whereCondition
+                                case None => ""
+                            }
+                            val whereConditionWithClause =   if(whereCondition != "") s"WHERE ${whereCondition}" else ""
+                            val sqlQuery =
+                                s"""(select min($primaryKey), max($primaryKey)
+                                                from ${mysqlConfig.tableName} ${whereConditionWithClause}) AS A"""
+                            logger.info(s"sqlQuery to find minMax = ${sqlQuery}")
+                            val dataReader = getDataFrameReader(mysqlConfig, sqlQuery, sqlContext)
+                            val data = dataReader.load()
+                            val minMaxData = data.rdd.collect()
+                            if (minMaxData.length == 1) {
+                                val minMaxRow = minMaxData(0)
+                                if (minMaxRow(0) != null && minMaxRow(1) != null) {
+                                    val maxPartitions = 12
+                                    val predicates = (0 until maxPartitions).toList.
+                                        map(n => s"($primaryKey mod $maxPartitions) = $n").
+                                        map( _ + s"AND (${whereCondition})")
+                                    logger.info(s"$predicates")
+                                    Some(predicates)
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
                         } else {
                             None
                         }
-                    } else {
-                        None
-                    }
-                } else {
-                    None
+                    case None => None
                 }
-            case None => None
-        }
+            }
+        } 
 
         val columns = tableDetails.validFields.map(_.fieldName).mkString(",")
-        //val sqlQuery = s"select ${columns} from ${mysqlConfig.tableName}"
-        val dataReader = getDataFrameReader(mysqlConfig, mysqlConfig.tableName, sqlContext)
         val partitionedReader: DataFrame = partitionDetails match {
             case Some(predicates) =>
                 val properties = new Properties()
@@ -79,7 +94,18 @@ object mysqlSchemaExtractor {
                         option("user", mysqlConfig.userName).
                         option("password", mysqlConfig.password).
                         jdbc(getJdbcUrl(mysqlConfig), mysqlConfig.tableName, predicates.toArray, properties)
-            case None => dataReader.load
+            case None => {
+                val tableQuery = internalConfig.incrementalSettings match {
+                    case Some(incrementalSettings) => {
+                        val whereCondition = incrementalSettings.whereCondition
+                        s"(SELECT * from ${mysqlConfig.tableName} WHERE ${whereCondition}) AS A"
+                    }
+                    case None => mysqlConfig.tableName
+                }
+                
+                val dataReader = getDataFrameReader(mysqlConfig, tableQuery, sqlContext)
+                dataReader.load
+            }
         }
         val data = partitionedReader.selectExpr(tableDetails.validFields.map(_.fieldName): _*)
         val dataWithTypesFixed = tableDetails.validFields.filter(_.javaType.isDefined).foldLeft(data) {
@@ -104,7 +130,7 @@ object mysqlSchemaExtractor {
       * @param partitions Number of partitions
       */
     def storeToRedshift(df: DataFrame, tableDetails: TableDetails, redshiftConf: DBConfiguration, s3Conf: S3Config,
-                        sqlContext: SQLContext)(partitions: Int = 12) = {
+                        sqlContext: SQLContext, internalConfig:InternalConfig = new InternalConfig)(partitions: Int = 12) = {
 
         logger.info("Storing to Redshift")
         logger.info("Redshift Details: \n{}", redshiftConf.toString)
@@ -113,22 +139,62 @@ object mysqlSchemaExtractor {
 
         val dropTableString = getDropCommand(redshiftConf)
         val createTableString = getCreateTableString(tableDetails, redshiftConf)
-        val preactions = dropTableString + "\n" + createTableString
+        val shallCreateTable = internalConfig.shallCreateTable match {
+            case None => { internalConfig.incrementalSettings match {
+                case None       => true
+                case Some(_)    => false
+            }}
+            case Some(sct) => sct
+        }
+        val dropAndCreateTableString = if(shallCreateTable) dropTableString + "\n" + createTableString else ""
+        val (deleteRecordsString:String, vacuumString:String) = internalConfig.incrementalSettings match {
+            case None       => ("","")
+            case Some(IncrementalSettings(whereCondition, shallDeletePastRecords, shallVaccumAfterLoad)) => {
+                val deleteRecordsStr = getDeleteRecordsString(whereCondition, shallDeletePastRecords, redshiftConf)
+                val vacuumStr        = getVacuumString(shallVaccumAfterLoad, redshiftConf)
+                logger.info(s"deleteRecordsStr = ${deleteRecordsStr}")
+                logger.info(s"vacuumStr = ${vacuumStr}")
+                (deleteRecordsStr, vacuumStr)
+            }
+        }
+
+        val preActions = dropAndCreateTableString + deleteRecordsString
+        val postActions:String = vacuumString
+
         val redshiftWriteMode = "append"
         logger.info("Write mode: {}", redshiftWriteMode)
 
-        df.repartition(partitions).write.
+        val redshiftWriter = df.repartition(partitions).write.
                 format("com.databricks.spark.redshift").
                 option("url", getJdbcUrl(redshiftConf)).
                 option("user", redshiftConf.userName).
                 option("password", redshiftConf.password).
                 option("jdbcdriver", "com.amazon.redshift.jdbc4.Driver").
-                option("preactions", preactions).
                 option("dbtable", s"${redshiftConf.schema}.${redshiftConf.tableName}").
                 option("tempdir", s3Conf.s3Location).
                 option("extracopyoptions", "TRUNCATECOLUMNS").
-                mode(redshiftWriteMode).
-                save()
+                mode(redshiftWriteMode)
+        
+        val redshiftWriterWithPreactions = {
+            if(preActions != "")  redshiftWriter.option("preactions", preActions) 
+            else redshiftWriter
+        }
+        
+        val redshiftWriterWithPostactions = {
+            if(postActions != "") redshiftWriterWithPreactions.option("postactions", postActions) 
+            else redshiftWriterWithPreactions   
+        }
+        
+        redshiftWriterWithPostactions.save()
+    }
+
+    def getDeleteRecordsString(whereCondition:String, shallDeletePastRecords:Boolean, redshiftConf:DBConfiguration) = {
+        if(shallDeletePastRecords) s"DELETE FROM ${getTableNameWithSchema(redshiftConf)} WHERE ${whereCondition} ;"
+        else ""
+    }
+
+    def getVacuumString(shallVaccumAfterLoad:Boolean, redshiftConf:DBConfiguration) = {
+        if(shallVaccumAfterLoad) s"VACUUM DELETE ONLY ${getTableNameWithSchema(redshiftConf)};"
     }
 
     def getDataFrameReader(mysqlConfig: DBConfiguration, sqlQuery: String, sqlContext: SQLContext): DataFrameReader = {
@@ -294,10 +360,13 @@ object mysqlSchemaExtractor {
         TableDetails(validFields, invalidFields, sortKeys, distKey)
     }
 
-    def getCreateTableString(tableDetails: TableDetails, redshiftConfiguration: DBConfiguration) = {
-        val rc = redshiftConfiguration
-        val td = tableDetails
-        val tableNameWithSchema = if (rc.schema != null && rc.schema != "") s"${rc.schema}.${rc.tableName} " else s"${rc.tableName} "
+    def getTableNameWithSchema(rc: DBConfiguration) = {
+        if (rc.schema != null && rc.schema != "") s"${rc.schema}.${rc.tableName}"
+        else s"${rc.tableName}"
+    }
+
+    def getCreateTableString(td: TableDetails, rc: DBConfiguration) = {
+        val tableNameWithSchema = getTableNameWithSchema(rc)
         val fieldNames = td.validFields.map(r => s"\t${r.fieldName} ${r.fieldType}").mkString(",\n")
         val distributionKey = td.distributionKey match {
             case None => "DISTSTYLE EVEN"
