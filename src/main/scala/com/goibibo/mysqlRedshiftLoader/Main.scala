@@ -74,7 +74,7 @@ object Main {
                 val loadedTable: (DataFrame, TableDetails) = mysqlSchemaExtractor.loadToSpark(configuration.mysqlConf,
                     sqlContext)
                 mysqlSchemaExtractor.storeToRedshift(loadedTable._1, loadedTable._2, configuration.redshiftConf,
-                    configuration.s3Conf, sqlContext)(12)
+                    configuration.s3Conf, sqlContext)
                 logger.info("Successful transfer for configuration\n{}", configuration.toString)
             } catch {
                 case e: Exception =>

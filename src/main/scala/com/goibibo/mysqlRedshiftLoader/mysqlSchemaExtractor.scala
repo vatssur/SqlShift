@@ -60,9 +60,9 @@ object mysqlSchemaExtractor {
                             if (minMaxData.length == 1) {
                                 val minMaxRow = minMaxData(0)
                                 if (minMaxRow(0) != null && minMaxRow(1) != null) {
-                                    val maxPartitions = 12
-                                    val predicates = (0 until maxPartitions).toList.
-                                        map(n => s"($primaryKey mod $maxPartitions) = $n").
+                                    val mapPartitions = internalConfig.mapPartitions
+                                    val predicates = (0 until mapPartitions).toList.
+                                        map(n => s"($primaryKey mod $mapPartitions) = $n").
                                         map( _ + s"AND (${whereCondition})")
                                     logger.info(s"$predicates")
                                     Some(predicates)
@@ -130,7 +130,7 @@ object mysqlSchemaExtractor {
       * @param partitions Number of partitions
       */
     def storeToRedshift(df: DataFrame, tableDetails: TableDetails, redshiftConf: DBConfiguration, s3Conf: S3Config,
-                        sqlContext: SQLContext, internalConfig:InternalConfig = new InternalConfig)(partitions: Int = 12) = {
+                        sqlContext: SQLContext, internalConfig:InternalConfig = new InternalConfig) = {
 
         logger.info("Storing to Redshift")
         logger.info("Redshift Details: \n{}", redshiftConf.toString)
@@ -164,7 +164,11 @@ object mysqlSchemaExtractor {
         val redshiftWriteMode = "append"
         logger.info("Write mode: {}", redshiftWriteMode)
 
-        val redshiftWriter = df.repartition(partitions).write.
+
+        val redshiftWriter = {
+                    if(df.rdd.getNumPartitions == internalConfig.reducePartitions) df 
+                    else df.repartition(internalConfig.reducePartitions)
+                }.write.
                 format("com.databricks.spark.redshift").
                 option("url", getJdbcUrl(redshiftConf)).
                 option("user", redshiftConf.userName).

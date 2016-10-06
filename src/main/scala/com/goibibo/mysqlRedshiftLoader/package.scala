@@ -60,11 +60,14 @@ package object mysqlRedshiftLoader {
     //If shallCreateTable != None
     //    shallCreateTable = shallCreateTable.get
 
+    //mapPartitions => set this with caution, If set to very high number, This can crash the database replica
+    //reducePartitions => Parallism is good for Redshift, Set this to >12, If this is same as the mapPartitions then 
+    //                      a reduce phase will be saved
     case class InternalConfig( shallSplit:Option[Boolean] = None, shallCreateTable:Option[Boolean] = None, 
-        incrementalSettings:Option[IncrementalSettings] = None )
+        incrementalSettings:Option[IncrementalSettings] = None,  mapPartitions:Int = 12, reducePartitions:Int = 12)
 
     case class AppParams(mysqlConfPath: String, s3ConfPath: String, 
-        redshiftConfPath: String, tableDetailsPath: String, )
+        redshiftConfPath: String, tableDetailsPath: String)
 
     case class AppConfiguration(mysqlConf: DBConfiguration, redshiftConf: DBConfiguration, s3Conf: S3Config) {
         override def toString: String = {
