@@ -48,10 +48,10 @@ package object mysqlRedshiftLoader {
 
     case class AppConfiguration(mysqlConf: DBConfiguration, redshiftConf: DBConfiguration, s3Conf: S3Config) {
         override def toString: String = {
-            val mysqlString: String = "mysql-db : " + mysqlConf.db + "\nmysql-table : " + mysqlConf.tableName
-            val redshiftString: String = "redshift-schema : " + redshiftConf.schema + "\nredshift-table : " +
+            val mysqlString: String = "\tmysql-db : " + mysqlConf.db + "\n\tmysql-table : " + mysqlConf.tableName
+            val redshiftString: String = "\tredshift-schema : " + redshiftConf.schema + "\n\tredshift-table : " +
                     redshiftConf.tableName
-            mysqlString + "\n" + redshiftString
+            "{\n" + mysqlString + "\n" + redshiftString + "\n}"
         }
     }
 

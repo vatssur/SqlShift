@@ -15,24 +15,9 @@ object Main {
     private val parser: OptionParser[AppParams] =
         new OptionParser[AppParams]("Main") {
             head("RDS to Redshift DataPipeline")
-            opt[String]("mysqlConf")
-                    .abbr("m")
-                    .text("MySQL properties file path")
-                    .action((x, c) => c.copy(mysqlConfPath = x))
-
-            opt[String]("s3Conf")
-                    .abbr("s")
-                    .text("S3 properties file path")
-                    .action((x, c) => c.copy(s3ConfPath = x))
-
-            opt[String]("redshiftConf")
-                    .abbr("r")
-                    .text("Redshift properties file path")
-                    .action((x, c) => c.copy(redshiftConfPath = x))
-
             opt[String]("tableDetails")
                     .abbr("t")
-                    .text("Table details json file path")
+                    .text("Table details json file path including ")
                     .action((x, c) => c.copy(tableDetailsPath = x))
 
             help("help")
@@ -48,18 +33,22 @@ object Main {
             val json: JValue = parse(jsonInputStream)
             val details: List[JValue] = json.extract[List[JValue]]
             for (detail <- details) {
-                val db: String = (detail \ "db").extract[String]
+                val mysqlJson: JValue = (detail \ "mysql").extract[JValue]
+                val redshiftJson: JValue = (detail \ "redshift").extract[JValue]
+                val s3Json: JValue = (detail \ "s3").extract[JValue]
                 val tables: List[String] = (detail \ "tables").extract[List[String]]
-                val schema: String = (detail \ "schema").extract[String]
                 for (table <- tables) {
-                    val mysqlConf: DBConfiguration = DBConfiguration("mysql", db, null, table,
-                        prop.getProperty("mysql.hostname"), prop.getProperty("mysql.portNo").toInt,
-                        prop.getProperty("mysql.userName"), prop.getProperty("mysql.password"))
-                    val redshiftConf: DBConfiguration = DBConfiguration("redshift", db, schema, table,
-                        prop.getProperty("redshift.hostname"), prop.getProperty("redshift.portNo").toInt,
-                        prop.getProperty("redshift.userName"), prop.getProperty("redshift.password"))
-                    val s3Conf: S3Config = S3Config(prop.getProperty("s3.location"), prop.getProperty("s3.accessKey"),
-                        prop.getProperty("s3.secretKey"))
+                    val mysqlConf: DBConfiguration = DBConfiguration("mysql", (mysqlJson \ "db").extract[String], null,
+                        table, (mysqlJson \ "hostname").extract[String], (mysqlJson \ "portno").extract[Int],
+                        (mysqlJson \ "username").extract[String], (mysqlJson \ "password").extract[String])
+
+                    val redshiftConf: DBConfiguration = DBConfiguration("redshift", "goibibo",
+                        (redshiftJson \ "schema").extract[String], table, (redshiftJson \ "hostname").extract[String],
+                        (redshiftJson \ "portno").extract[Int], (redshiftJson \ "username").extract[String],
+                        (redshiftJson \ "password").extract[String])
+
+                    val s3Conf: S3Config = S3Config((s3Json \ "location").extract[String],
+                        (s3Json \ "accessKey").extract[String], (s3Json \ "secretKey").extract[String])
                     configurations = configurations :+ AppConfiguration(mysqlConf, redshiftConf, s3Conf)
                 }
             }
@@ -80,7 +69,7 @@ object Main {
         implicit val crashOnInvalidValue: Boolean = true
 
         for (configuration <- configurations) {
-            logger.info("Following is configuration\n{}", configuration.toString)
+            logger.info("Configuration: \n{}", configuration.toString)
             try {
                 val loadedTable: (DataFrame, TableDetails) = mysqlSchemaExtractor.loadToSpark(configuration.mysqlConf,
                     sqlContext)
@@ -89,7 +78,7 @@ object Main {
                 logger.info("Successful transfer for configuration\n{}", configuration.toString)
             } catch {
                 case e: Exception =>
-                    logger.info("Transfer Failed for configuration: {}", configuration)
+                    logger.info("Transfer Failed for configuration: \n{}", configuration)
                     logger.error("Stack Trace: ", e.fillInStackTrace())
             }
         }

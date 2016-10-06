@@ -1,5 +1,0 @@
-# Redshift database configuration
-# redshift.hostname =
-# redshift.portNo   = 5439
-# redshift.userName =
-# redshift.password =

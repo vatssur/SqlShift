@@ -88,6 +88,7 @@ object mysqlSchemaExtractor {
                 df.withColumn(dbField.fieldName, modifiedCol)
             }
         }
+        logger.info("Table load in spark is finished!!!")
         (dataWithTypesFixed, tableDetails)
     }
 

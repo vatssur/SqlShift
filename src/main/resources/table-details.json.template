@@ -1,12 +1,52 @@
 [
   {
-    "db": "",
+    "mysql":
+    {
+        "db": "",
+        hostname: "",
+        portNo: "",
+        userName: "",
+        password: ""
+    },
     "tables": [],
-    "schema": ""
+    "redshift":
+    {
+        "schema": "",
+        "hostname": "",
+        "portNo": "",
+        "userName": "",
+        "password": ""
+    },
+    "s3":
+    {
+        "location": "",
+        "accessKey": "",
+        "secretKey": ""
+    }
   },
   {
-    "db": "",
+    "mysql":
+    {
+        "db": "",
+        hostname: "",
+        portNo: "",
+        userName: "",
+        password: ""
+    },
     "tables": [],
-    "schema": ""
+    "redshift":
+    {
+        "schema": "",
+        "hostname": "",
+        "portNo": "",
+        "userName": "",
+        "password": ""
+    },
+    "s3":
+    {
+        "location": "",
+        "accessKey": "",
+        "secretKey": ""
+    }
   }
 ]
