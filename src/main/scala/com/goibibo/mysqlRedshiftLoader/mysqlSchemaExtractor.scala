@@ -38,7 +38,7 @@ object mysqlSchemaExtractor {
                     None
                 }
                 case _  => {
-                    logger.info("shallSplit is not set")
+                    logger.info("shallSplit either not set or true")
                     tableDetails.distributionKey match {
                     case Some(primaryKey) =>
                         val typeOfPrimaryKey = tableDetails.validFields.filter(_.fieldName == primaryKey).head.fieldType
@@ -69,7 +69,7 @@ object mysqlSchemaExtractor {
                                     val mapPartitions = internalConfig.mapPartitions
                                     val predicates = (0 until mapPartitions).toList.
                                         map(n => s" ($primaryKey mod $mapPartitions) = $n ").
-                                        map( _ + s"AND (${whereCondition})")
+                                        map(c => if(whereCondition != "") (c + s"AND (${whereCondition})") else c)
                                     logger.info(s"$predicates")
                                     Some(predicates)
                                 } else {
@@ -145,55 +145,89 @@ object mysqlSchemaExtractor {
         logger.info("Redshift Details: \n{}", redshiftConf.toString)
         sqlContext.sparkContext.hadoopConfiguration.set("fs.s3a.access.key", s3Conf.accessKey)
         sqlContext.sparkContext.hadoopConfiguration.set("fs.s3a.secret.key", s3Conf.secretKey)
-
+        val redshiftTableName = getTableNameWithSchema(redshiftConf)
+        val stagingPrepend = "_staging"
+        val redshiftStagingTableName = redshiftTableName + stagingPrepend
         val dropTableString = getDropCommand(redshiftConf)
         logger.info("dropTableString {}", dropTableString)
         val createTableString = getCreateTableString(tableDetails, redshiftConf)
-        logger.info("createTableString {}", dropTableString)
-        val shallCreateTable = internalConfig.shallCreateTable match {
-            case None => { internalConfig.incrementalSettings match {
-                case None       => {
-                    logger.info("internalConfig.shallCreateTable is None and internalConfig.incrementalSettings is None")
-                    true
+        val redshiftStagingConf = redshiftConf.copy(tableName = redshiftConf.tableName + stagingPrepend )
+        val createStagingTableString = getCreateTableString(tableDetails, redshiftStagingConf)
+        logger.info("createTableString {}", createTableString)
+        val shallOverwrite = internalConfig.shallOverwrite match {
+            case None => { 
+                internalConfig.incrementalSettings match {
+                    case None       => {
+                        logger.info("internalConfig.shallOverwrite is None and internalConfig.incrementalSettings is None")
+                        true
+                    }
+                    case Some(_)    => {
+                        logger.info("internalConfig.shallOverwrite is None and internalConfig.incrementalSettings is Some")
+                        false
+                    }
                 }
-                case Some(_)    => {
-                    logger.info("internalConfig.shallCreateTable is None and internalConfig.incrementalSettings is Some")
-                    false
-                }
-            }}
+            }
             case Some(sct) => { 
-                logger.info("internalConfig.shallCreateTable is {}", sct)
+                logger.info("internalConfig.shallOverwrite is {}", sct)
                 sct 
             }
         }
-        val dropAndCreateTableString = if(shallCreateTable) {
-                logger.info("InternalConfig.shallCreateTable is true")
-                dropTableString + "\n" + createTableString 
-            } else { 
-                logger.info("InternalConfig.shallCreateTable is false")
-                ""
-            }
-        val (deleteRecordsString:String, shallVaccumAfterLoad:Boolean) = internalConfig.incrementalSettings match {
+
+        val dropAndCreateTableString = if(shallOverwrite) dropTableString + "\n" + createTableString else createTableString
+
+        val (dropStagingTableString:String, mergeKey:String, shallVaccumAfterLoad:Boolean) = internalConfig.incrementalSettings match {
             case None       => { 
-                logger.info("No deleteRecordsString and No vacuumString, internalConfig.incrementalSettings is None")
-                ("", false)
+                logger.info("No dropStagingTableString and No vacuum, internalConfig.incrementalSettings is None")
+                ("", "", false)
             }
-            case Some(IncrementalSettings(whereCondition, shallDeletePastRecords, shallVaccumAfterLoad)) => {
-                val deleteRecordsStr = getDeleteRecordsString(whereCondition, shallDeletePastRecords, redshiftConf)
-                logger.info(s"deleteRecordsStr = ${deleteRecordsStr}")
-                (deleteRecordsStr,shallVaccumAfterLoad)
+            case Some(IncrementalSettings(whereCondition, shallMerge, stagingTableMergeKey, shallVaccumAfterLoad)) => {
+                val dropStatingTableStr = if(shallMerge) s"DROP TABLE IF EXISTS ${redshiftStagingTableName};" else ""
+                logger.info(s"dropStatingTableStr = {}",dropStatingTableStr)
+                val mKey:String = {
+                    if(shallMerge) {
+                        stagingTableMergeKey match {
+                            case None => { 
+                                logger.info("mergeKey is also not provided, we use primary key in this case {}", 
+                                    tableDetails.distributionKey.get)
+                                //If primaryKey is not available and mergeKey is also not provided
+                                //This means wrong input, get will crash if tableDetails.distributionKey is None
+                                tableDetails.distributionKey.get
+                            }
+                            case Some(mk) => { 
+                                logger.info(s"Found mergeKey = {}", mk)
+                                mk 
+                            }
+                        }
+                    } else {
+                        logger.info(s"Shall merge is not specified passing megeKey as empty")
+                        ""
+                    }
+                }
+                (dropStatingTableStr, mKey, shallVaccumAfterLoad)
             }
         }
 
-        val preActions = dropAndCreateTableString + deleteRecordsString
-        val postActions:String = ""
+        val preActions = dropAndCreateTableString + (if(dropStagingTableString != "") (dropStagingTableString + createStagingTableString) else "")
+        val postActions:String = if(dropStagingTableString != "") {
+            s"""DELETE FROM ${redshiftTableName} USING ${redshiftStagingTableName} 
+            |    WHERE ${redshiftTableName}.${mergeKey} = ${redshiftStagingTableName}.${mergeKey}; """.stripMargin + "\n"+
+            s"""INSERT into ${redshiftTableName} 
+                |SELECT * FROM ${redshiftStagingTableName};""".stripMargin
+        } else {
+            ""
+        }
 
         logger.info("preActions = {}", preActions)
         logger.info("postActions = {}", postActions)
 
-        val redshiftWriteMode = "append"
+        val redshiftWriteMode = if(dropStagingTableString != "") "overwrite" else "append"
         logger.info("Write mode: {}", redshiftWriteMode)
 
+
+        val redshiftTableNameForIngestion = if(dropStagingTableString != "") redshiftStagingTableName 
+                                            else redshiftTableName
+
+        logger.info("redshiftTableNameForIngestion: {}", redshiftTableNameForIngestion)
 
         val redshiftWriter = {
                     if(df.rdd.getNumPartitions == internalConfig.reducePartitions) df 
@@ -204,7 +238,7 @@ object mysqlSchemaExtractor {
                 option("user", redshiftConf.userName).
                 option("password", redshiftConf.password).
                 option("jdbcdriver", "com.amazon.redshift.jdbc4.Driver").
-                option("dbtable", s"${redshiftConf.schema}.${redshiftConf.tableName}").
+                option("dbtable", redshiftTableNameForIngestion).
                 option("tempdir", s3Conf.s3Location).
                 option("extracopyoptions", "TRUNCATECOLUMNS").
                 mode(redshiftWriteMode)
@@ -227,10 +261,6 @@ object mysqlSchemaExtractor {
         }
     }
 
-    def getDeleteRecordsString(whereCondition:String, shallDeletePastRecords:Boolean, redshiftConf:DBConfiguration) = {
-        if(shallDeletePastRecords) s"DELETE FROM ${getTableNameWithSchema(redshiftConf)} WHERE ${whereCondition} ;"
-        else ""
-    }
 
     def getVacuumString(shallVaccumAfterLoad:Boolean, redshiftConf:DBConfiguration) = {
         if(shallVaccumAfterLoad) s"VACUUM DELETE ONLY ${getTableNameWithSchema(redshiftConf)};" else ""
