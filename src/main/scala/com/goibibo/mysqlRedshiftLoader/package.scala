@@ -47,8 +47,13 @@ package object mysqlRedshiftLoader {
     //In the case of IncrementalSettings shallCreateTable should be false by default
     //whereCondition shall not be wrapped with brackets ()
     //Also whereCondition shall not be empty and shall be valid SQL
-    case class IncrementalSettings(whereCondition:String, shallDeletePastRecords:Boolean = false, 
-                                    shallVaccumAfterLoad:Boolean = false)
+
+    //shallMerge: If false, new data will be appended, If true: It will be merged based on mergeKey
+    //mergeKey: If mergeKey is not provided by default code uses primaryKey of the table as the mergeKey
+    case class IncrementalSettings(whereCondition:String, 
+                                    shallMerge:Boolean = false, 
+                                    mergeKey:Option[String] = None
+                                    shallVaccumAfterLoad:Boolean = false )
     
     //Defaults, 
     //If shallSplit = None then shallSplit = true
