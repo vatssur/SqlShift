@@ -48,7 +48,7 @@ object mysqlSchemaExtractor {
                             
                             val whereCondition = internalConfig.incrementalSettings match {
                                 case Some(incrementalSettings) => { 
-                                    logger.info("Found where condition ", incrementalSettings.whereCondition);
+                                    logger.info("Found where condition {}", incrementalSettings.whereCondition);
                                     incrementalSettings.whereCondition
                                 }
                                 case None => { logger.info("Found no where condition "); "" }
@@ -68,7 +68,7 @@ object mysqlSchemaExtractor {
                                     logger.info("minMaxRow(0) != null && minMaxRow(1) != null")
                                     val mapPartitions = internalConfig.mapPartitions
                                     val predicates = (0 until mapPartitions).toList.
-                                        map(n => s"($primaryKey mod $mapPartitions) = $n").
+                                        map(n => s" ($primaryKey mod $mapPartitions) = $n ").
                                         map( _ + s"AND (${whereCondition})")
                                     logger.info(s"$predicates")
                                     Some(predicates)
@@ -91,7 +91,7 @@ object mysqlSchemaExtractor {
 
         val partitionedReader: DataFrame = partitionDetails match {
             case Some(predicates) =>
-                logger.info("Using partitionedRead ", predicates)
+                logger.info("Using partitionedRead {}", predicates)
                 val properties = new Properties()
                 properties.setProperty("user", mysqlConfig.userName)
                 properties.setProperty("password", mysqlConfig.password)
@@ -111,7 +111,7 @@ object mysqlSchemaExtractor {
                     }
                     case None => mysqlConfig.tableName
                 }
-                logger.info("Using single partition read query = ", tableQuery)
+                logger.info("Using single partition read query = {}", tableQuery)
                 val dataReader = getDataFrameReader(mysqlConfig, tableQuery, sqlContext)
                 dataReader.load
             }
@@ -147,9 +147,9 @@ object mysqlSchemaExtractor {
         sqlContext.sparkContext.hadoopConfiguration.set("fs.s3a.secret.key", s3Conf.secretKey)
 
         val dropTableString = getDropCommand(redshiftConf)
-        logger.info("dropTableString ", dropTableString)
+        logger.info("dropTableString {}", dropTableString)
         val createTableString = getCreateTableString(tableDetails, redshiftConf)
-        logger.info("createTableString ", dropTableString)
+        logger.info("createTableString {}", dropTableString)
         val shallCreateTable = internalConfig.shallCreateTable match {
             case None => { internalConfig.incrementalSettings match {
                 case None       => {
@@ -162,7 +162,7 @@ object mysqlSchemaExtractor {
                 }
             }}
             case Some(sct) => { 
-                logger.info("internalConfig.shallCreateTable is ", sct)
+                logger.info("internalConfig.shallCreateTable is {}", sct)
                 sct 
             }
         }
@@ -173,25 +173,23 @@ object mysqlSchemaExtractor {
                 logger.info("InternalConfig.shallCreateTable is false")
                 ""
             }
-        val (deleteRecordsString:String, vacuumString:String) = internalConfig.incrementalSettings match {
+        val (deleteRecordsString:String, shallVaccumAfterLoad:Boolean) = internalConfig.incrementalSettings match {
             case None       => { 
                 logger.info("No deleteRecordsString and No vacuumString, internalConfig.incrementalSettings is None")
-                ("","")
+                ("", false)
             }
             case Some(IncrementalSettings(whereCondition, shallDeletePastRecords, shallVaccumAfterLoad)) => {
                 val deleteRecordsStr = getDeleteRecordsString(whereCondition, shallDeletePastRecords, redshiftConf)
-                val vacuumStr        = getVacuumString(shallVaccumAfterLoad, redshiftConf)
                 logger.info(s"deleteRecordsStr = ${deleteRecordsStr}")
-                logger.info(s"vacuumStr = ${vacuumStr}")
-                (deleteRecordsStr, vacuumStr)
+                (deleteRecordsStr,shallVaccumAfterLoad)
             }
         }
 
         val preActions = dropAndCreateTableString + deleteRecordsString
-        val postActions:String = vacuumString
+        val postActions:String = ""
 
-        logger.info("preActions = ", preActions)
-        logger.info("postActions = ", postActions)
+        logger.info("preActions = {}", preActions)
+        logger.info("postActions = {}", postActions)
 
         val redshiftWriteMode = "append"
         logger.info("Write mode: {}", redshiftWriteMode)
@@ -222,6 +220,11 @@ object mysqlSchemaExtractor {
         }
         
         redshiftWriterWithPostactions.save()
+        if(shallVaccumAfterLoad) { 
+            performVacuum(redshiftConf)
+        } else {
+            logger.info("Not opting for Vacuum, shallVaccumAfterLoad is false")
+        }
     }
 
     def getDeleteRecordsString(whereCondition:String, shallDeletePastRecords:Boolean, redshiftConf:DBConfiguration) = {
@@ -230,7 +233,7 @@ object mysqlSchemaExtractor {
     }
 
     def getVacuumString(shallVaccumAfterLoad:Boolean, redshiftConf:DBConfiguration) = {
-        if(shallVaccumAfterLoad) s"VACUUM DELETE ONLY ${getTableNameWithSchema(redshiftConf)};"
+        if(shallVaccumAfterLoad) s"VACUUM DELETE ONLY ${getTableNameWithSchema(redshiftConf)};" else ""
     }
 
     def getDataFrameReader(mysqlConfig: DBConfiguration, sqlQuery: String, sqlContext: SQLContext): DataFrameReader = {
@@ -432,4 +435,15 @@ object mysqlSchemaExtractor {
         stmt.close()
     }
 
+    def performVacuum(conf: DBConfiguration) = {
+        logger.info("Initiating the connection for vacuum")
+        val con  = getConnection(conf)
+        logger.info("creating statement for Connection")
+        val stmt = con.createStatement()
+        val vacuumString = getVacuumString(true,conf)        
+        logger.info("Running command {}",vacuumString)
+        stmt.executeUpdate(vacuumString)
+        stmt.close()
+        con.close()
+    }
 }
