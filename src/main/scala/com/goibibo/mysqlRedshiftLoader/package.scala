@@ -2,8 +2,14 @@ package com.goibibo
 
 package object mysqlRedshiftLoader {
 
-    case class DBConfiguration(database: String, db: String, schema: String,
-                               tableName: String, hostname: String, portNo: Int, userName: String, password: String) {
+    case class DBConfiguration(database: String,
+                               db: String,
+                               schema: String,
+                               tableName: String,
+                               hostname: String,
+                               portNo: Int,
+                               userName: String,
+                               password: String) {
 
         override def toString: String = {
             s"""{
@@ -16,9 +22,13 @@ package object mysqlRedshiftLoader {
         }
     }
 
-    case class S3Config(s3Location: String, accessKey: String, secretKey: String)
+    case class S3Config(s3Location: String,
+                        accessKey: String,
+                        secretKey: String)
 
-    case class DBField(fieldName: String, fieldType: String, javaType: Option[String] = None) {
+    case class DBField(fieldName: String,
+                       fieldType: String,
+                       javaType: Option[String] = None) {
 
         override def toString: String = {
             s"""{
@@ -30,8 +40,10 @@ package object mysqlRedshiftLoader {
         }
     }
 
-    case class TableDetails(validFields: Seq[DBField], invalidFields: Seq[DBField],
-                            sortKeys: Seq[String], distributionKey: Option[String]) {
+    case class TableDetails(validFields: Seq[DBField],
+                            invalidFields: Seq[DBField],
+                            sortKeys: Seq[String],
+                            distributionKey: Option[String]) {
 
         override def toString: String = {
             s"""{
@@ -50,14 +62,14 @@ package object mysqlRedshiftLoader {
 
     //shallMerge: If false, new data will be appended, If true: It will be merged based on mergeKey
     //mergeKey: If mergeKey is not provided by default code uses primaryKey of the table as the mergeKey
-    case class IncrementalSettings(whereCondition:String, 
-                                    shallMerge:Boolean = false, 
-                                    mergeKey:Option[String] = None,
-                                    shallVaccumAfterLoad:Boolean = false )
-    
+    case class IncrementalSettings(whereCondition: String,
+                                   shallMerge: Boolean = false,
+                                   mergeKey: Option[String] = None,
+                                   shallVaccumAfterLoad: Boolean = false)
+
     //Defaults, 
     //If shallSplit = None then shallSplit = true
-    
+
     //If shallOverwrite = None && incrementalSettings = None
     //    then shallOverwrite is true
     //If shallOverwrite = None && incrementalSettings != None
@@ -68,13 +80,21 @@ package object mysqlRedshiftLoader {
     //mapPartitions => set this with caution, If set to very high number, This can crash the database replica
     //reducePartitions => Parallism is good for Redshift, Set this to >12, If this is same as the mapPartitions then 
     //                      a reduce phase will be saved
-    case class InternalConfig( shallSplit:Option[Boolean] = None, shallOverwrite:Option[Boolean] = None, 
-        incrementalSettings:Option[IncrementalSettings] = None,  mapPartitions:Int = 12, reducePartitions:Int = 12)
+    case class InternalConfig(shallSplit: Option[Boolean] = None,
+                              shallOverwrite: Option[Boolean] = None,
+                              incrementalSettings: Option[IncrementalSettings] = None,
+                              mapPartitions: Int = 12,
+                              reducePartitions: Int = 12)
 
-    case class AppParams(mysqlConfPath: String, s3ConfPath: String, 
-        redshiftConfPath: String, tableDetailsPath: String)
+    case class AppParams(tableDetailsPath: String,
+                         targetRecordOverwrite: Boolean = true,
+                         targetRecordOverwriteKey: Option[String] = None)
 
-    case class AppConfiguration(mysqlConf: DBConfiguration, redshiftConf: DBConfiguration, s3Conf: S3Config) {
+    case class AppConfiguration(mysqlConf: DBConfiguration,
+                                redshiftConf: DBConfiguration,
+                                s3Conf: S3Config,
+                                internalConfig: InternalConfig) {
+
         override def toString: String = {
             val mysqlString: String = "\tmysql-db : " + mysqlConf.db + "\n\tmysql-table : " + mysqlConf.tableName
             val redshiftString: String = "\tredshift-schema : " + redshiftConf.schema + "\n\tredshift-table : " +

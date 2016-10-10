@@ -19,75 +19,65 @@ object mysqlSchemaExtractor {
     /**
       * Load table in spark.
       *
-      * @param mysqlConfig
-      * @param sqlContext
-      * @param crashOnInvalidType
+      * @param mysqlConfig        Mysql connection configuration
+      * @param sqlContext         Spark SQLContext
+      * @param crashOnInvalidType ToDo: What is this?
       * @return
       */
-    def loadToSpark(mysqlConfig: DBConfiguration, sqlContext: SQLContext, internalConfig:InternalConfig = new InternalConfig)
-                   (implicit crashOnInvalidType: Boolean):
-    (DataFrame, TableDetails) = {
+    def loadToSpark(mysqlConfig: DBConfiguration, sqlContext: SQLContext, internalConfig: InternalConfig = new InternalConfig)
+                   (implicit crashOnInvalidType: Boolean): (DataFrame, TableDetails) = {
+
         logger.info("Loading table to Spark from MySQL")
         logger.info("MySQL details: \n{}", mysqlConfig.toString)
         val tableDetails: TableDetails = getValidFieldNames(mysqlConfig)
         logger.info("Table details: \n{}", tableDetails.toString)
 
         val partitionDetails: Option[Seq[String]] = internalConfig.shallSplit match {
-                case Some(false) => {
-                    logger.info("shallSplit is false")
-                    None
-                }
-                case _  => {
-                    logger.info("shallSplit either not set or true")
-                    tableDetails.distributionKey match {
+            case Some(false) => {
+                logger.info("shallSplit is false")
+                None
+            }
+            case _ => {
+                logger.info("shallSplit either not set or true")
+                tableDetails.distributionKey match {
                     case Some(primaryKey) =>
                         val typeOfPrimaryKey = tableDetails.validFields.filter(_.fieldName == primaryKey).head.fieldType
                         //Spark supports only long to break the table into multiple fields
                         //https://github.com/apache/spark/blob/branch-1.6/sql/core/src/main/scala/org/apache/spark/sql/execution/datasources/jdbc/JDBCRelation.scala#L33
                         if (typeOfPrimaryKey.startsWith("INT")) {
-                            
+
                             val whereCondition = internalConfig.incrementalSettings match {
-                                case Some(incrementalSettings) => { 
-                                    logger.info("Found where condition {}", incrementalSettings.whereCondition);
-                                    incrementalSettings.whereCondition
+                                case Some(incrementalSettings) => {
+                                    logger.info("Found where condition {}", incrementalSettings.whereCondition)
+                                    Some(incrementalSettings.whereCondition)
                                 }
-                                case None => { logger.info("Found no where condition "); "" }
-                            }
-                            val whereConditionWithClause =   if(whereCondition != "") s"WHERE ${whereCondition}" else ""
-                            val sqlQuery =
-                                s"""(select min($primaryKey), max($primaryKey)
-                                                from ${mysqlConfig.tableName} ${whereConditionWithClause}) AS A"""
-                            logger.info(s"sqlQuery to find minMax = ${sqlQuery}")
-                            val dataReader = getDataFrameReader(mysqlConfig, sqlQuery, sqlContext)
-                            val data = dataReader.load()
-                            val minMaxData = data.rdd.collect()
-                            if (minMaxData.length == 1) {
-                                logger.info("Found minMaxData")
-                                val minMaxRow = minMaxData(0)
-                                if (minMaxRow(0) != null && minMaxRow(1) != null) {
-                                    logger.info("minMaxRow(0) != null && minMaxRow(1) != null")
-                                    val mapPartitions = internalConfig.mapPartitions
-                                    val predicates = (0 until mapPartitions).toList.
-                                        map(n => s" ($primaryKey mod $mapPartitions) = $n ").
-                                        map(c => if(whereCondition != "") (c + s"AND (${whereCondition})") else c)
-                                    logger.info(s"$predicates")
-                                    Some(predicates)
-                                } else {
-                                    logger.warn(s"Found either min or max null minMaxRow(0) = ${minMaxRow(0)}, minMaxRow(1) = ${minMaxRow(1)}")
+                                case None => {
+                                    logger.info("Found no where condition ")
                                     None
                                 }
-                            } else {
-                                logger.warn(s"minMaxData.length != 1, minMaxData.length = ${minMaxData.length}")
-                                None
                             }
+                            val minMax: (Long, Long, Long) = Main.getMinMaxAndRows(mysqlConfig, whereCondition)
+                            val nr: Long = minMax._2 - minMax._1 + 1
+
+                            val mapPartitions = internalConfig.mapPartitions
+                            if (mapPartitions == 0) {
+                                return (null, null)
+                            }
+                            val inc: Long = nr / mapPartitions
+                            val predicates = (0 until mapPartitions).toList.
+                                    map { n =>
+                                        s"$primaryKey BETWEEN ${minMax._1 + n * inc} AND ${minMax._1 - 1 + (n + 1) * inc} "
+                                    }.
+                                    map(c => if (whereCondition.isDefined) c + s"AND (${whereCondition.get})" else c)
+                            Some(predicates)
                         } else {
-                            logger.warn(s"primary keys is non INT ${typeOfPrimaryKey}")
+                            logger.warn(s"primary keys is non INT $typeOfPrimaryKey")
                             None
                         }
                     case None => None
                 }
             }
-        } 
+        }
 
         val partitionedReader: DataFrame = partitionDetails match {
             case Some(predicates) =>
@@ -131,15 +121,15 @@ object mysqlSchemaExtractor {
       * Store Dataframe to Redshift table. Drop table if exists.
       * It table doesn't exist it will create table.
       *
-      * @param df         dataframe
-      * @param tableDetails
-      * @param redshiftConf
-      * @param s3Conf
-      * @param sqlContext
-      * @param partitions Number of partitions
+      * @param df dataframe
+      * @param tableDetails valid and not valid field details
+      * @param redshiftConf redshift configuration
+      * @param s3Conf s3 configuration
+      * @param sqlContext spark SQL context
+      * @param internalConfig Information about incremental and partitions
       */
     def storeToRedshift(df: DataFrame, tableDetails: TableDetails, redshiftConf: DBConfiguration, s3Conf: S3Config,
-                        sqlContext: SQLContext, internalConfig:InternalConfig = new InternalConfig) = {
+                        sqlContext: SQLContext, internalConfig: InternalConfig = new InternalConfig) = {
 
         logger.info("Storing to Redshift")
         logger.info("Redshift Details: \n{}", redshiftConf.toString)
@@ -151,51 +141,51 @@ object mysqlSchemaExtractor {
         val dropTableString = getDropCommand(redshiftConf)
         logger.info("dropTableString {}", dropTableString)
         val createTableString = getCreateTableString(tableDetails, redshiftConf)
-        val redshiftStagingConf = redshiftConf.copy(tableName = redshiftConf.tableName + stagingPrepend )
+        val redshiftStagingConf = redshiftConf.copy(tableName = redshiftConf.tableName + stagingPrepend)
         val createStagingTableString = getCreateTableString(tableDetails, redshiftStagingConf)
         logger.info("createTableString {}", createTableString)
         val shallOverwrite = internalConfig.shallOverwrite match {
-            case None => { 
+            case None => {
                 internalConfig.incrementalSettings match {
-                    case None       => {
+                    case None => {
                         logger.info("internalConfig.shallOverwrite is None and internalConfig.incrementalSettings is None")
                         true
                     }
-                    case Some(_)    => {
+                    case Some(_) => {
                         logger.info("internalConfig.shallOverwrite is None and internalConfig.incrementalSettings is Some")
                         false
                     }
                 }
             }
-            case Some(sct) => { 
+            case Some(sct) => {
                 logger.info("internalConfig.shallOverwrite is {}", sct)
-                sct 
+                sct
             }
         }
 
-        val dropAndCreateTableString = if(shallOverwrite) dropTableString + "\n" + createTableString else createTableString
+        val dropAndCreateTableString = if (shallOverwrite) dropTableString + "\n" + createTableString else createTableString
 
-        val (dropStagingTableString:String, mergeKey:String, shallVaccumAfterLoad:Boolean) = internalConfig.incrementalSettings match {
-            case None       => { 
+        val (dropStagingTableString: String, mergeKey: String, shallVaccumAfterLoad: Boolean) = internalConfig.incrementalSettings match {
+            case None => {
                 logger.info("No dropStagingTableString and No vacuum, internalConfig.incrementalSettings is None")
                 ("", "", false)
             }
             case Some(IncrementalSettings(whereCondition, shallMerge, stagingTableMergeKey, shallVaccumAfterLoad)) => {
-                val dropStatingTableStr = if(shallMerge) s"DROP TABLE IF EXISTS ${redshiftStagingTableName};" else ""
-                logger.info(s"dropStatingTableStr = {}",dropStatingTableStr)
-                val mKey:String = {
-                    if(shallMerge) {
+                val dropStatingTableStr = if (shallMerge) s"DROP TABLE IF EXISTS ${redshiftStagingTableName};" else ""
+                logger.info(s"dropStatingTableStr = {}", dropStatingTableStr)
+                val mKey: String = {
+                    if (shallMerge) {
                         stagingTableMergeKey match {
-                            case None => { 
-                                logger.info("mergeKey is also not provided, we use primary key in this case {}", 
+                            case None => {
+                                logger.info("mergeKey is also not provided, we use primary key in this case {}",
                                     tableDetails.distributionKey.get)
                                 //If primaryKey is not available and mergeKey is also not provided
                                 //This means wrong input, get will crash if tableDetails.distributionKey is None
                                 tableDetails.distributionKey.get
                             }
-                            case Some(mk) => { 
+                            case Some(mk) => {
                                 logger.info(s"Found mergeKey = {}", mk)
-                                mk 
+                                mk
                             }
                         }
                     } else {
@@ -207,12 +197,12 @@ object mysqlSchemaExtractor {
             }
         }
 
-        val preActions = dropAndCreateTableString + (if(dropStagingTableString != "") (dropStagingTableString + createStagingTableString) else "")
-        val postActions:String = if(dropStagingTableString != "") {
-            s"""DELETE FROM ${redshiftTableName} USING ${redshiftStagingTableName} 
-            |    WHERE ${redshiftTableName}.${mergeKey} = ${redshiftStagingTableName}.${mergeKey}; """.stripMargin + "\n"+
-            s"""INSERT into ${redshiftTableName} 
-                |SELECT * FROM ${redshiftStagingTableName};""".stripMargin
+        val preActions = dropAndCreateTableString + (if (dropStagingTableString != "") (dropStagingTableString + createStagingTableString) else "")
+        val postActions: String = if (dropStagingTableString != "") {
+            s"""DELETE FROM ${redshiftTableName} USING ${redshiftStagingTableName}
+                |    WHERE ${redshiftTableName}.${mergeKey} = ${redshiftStagingTableName}.${mergeKey}; """.stripMargin + "\n" +
+                    s"""INSERT into ${redshiftTableName}
+                        |SELECT * FROM ${redshiftStagingTableName};""".stripMargin
         } else {
             ""
         }
@@ -220,19 +210,22 @@ object mysqlSchemaExtractor {
         logger.info("preActions = {}", preActions)
         logger.info("postActions = {}", postActions)
 
-        val redshiftWriteMode = if(dropStagingTableString != "") "overwrite" else "append"
+        val redshiftWriteMode = if (dropStagingTableString != "") "overwrite" else "append"
         logger.info("Write mode: {}", redshiftWriteMode)
 
 
-        val redshiftTableNameForIngestion = if(dropStagingTableString != "") redshiftStagingTableName 
-                                            else redshiftTableName
+        val redshiftTableNameForIngestion = if (dropStagingTableString != "") redshiftStagingTableName
+        else redshiftTableName
 
         logger.info("redshiftTableNameForIngestion: {}", redshiftTableNameForIngestion)
 
         val redshiftWriter = {
-                    if(df.rdd.getNumPartitions == internalConfig.reducePartitions) df 
-                    else df.repartition(internalConfig.reducePartitions)
-                }.write.
+            if (df.rdd.getNumPartitions == internalConfig.reducePartitions) df
+            else {
+                logger.info("Repartitioning the data frame...")
+                df.repartition(internalConfig.reducePartitions)
+            }
+        }.write.
                 format("com.databricks.spark.redshift").
                 option("url", getJdbcUrl(redshiftConf)).
                 option("user", redshiftConf.userName).
@@ -242,19 +235,19 @@ object mysqlSchemaExtractor {
                 option("tempdir", s3Conf.s3Location).
                 option("extracopyoptions", "TRUNCATECOLUMNS").
                 mode(redshiftWriteMode)
-        
+
         val redshiftWriterWithPreactions = {
-            if(preActions != "")  redshiftWriter.option("preactions", preActions) 
+            if (preActions != "") redshiftWriter.option("preactions", preActions)
             else redshiftWriter
         }
-        
+
         val redshiftWriterWithPostactions = {
-            if(postActions != "") redshiftWriterWithPreactions.option("postactions", postActions) 
-            else redshiftWriterWithPreactions   
+            if (postActions != "") redshiftWriterWithPreactions.option("postactions", postActions)
+            else redshiftWriterWithPreactions
         }
-        
+
         redshiftWriterWithPostactions.save()
-        if(shallVaccumAfterLoad) { 
+        if (shallVaccumAfterLoad) {
             performVacuum(redshiftConf)
         } else {
             logger.info("Not opting for Vacuum, shallVaccumAfterLoad is false")
@@ -262,8 +255,8 @@ object mysqlSchemaExtractor {
     }
 
 
-    def getVacuumString(shallVaccumAfterLoad:Boolean, redshiftConf:DBConfiguration) = {
-        if(shallVaccumAfterLoad) s"VACUUM DELETE ONLY ${getTableNameWithSchema(redshiftConf)};" else ""
+    def getVacuumString(shallVaccumAfterLoad: Boolean, redshiftConf: DBConfiguration) = {
+        if (shallVaccumAfterLoad) s"VACUUM DELETE ONLY ${getTableNameWithSchema(redshiftConf)};" else ""
     }
 
     def getDataFrameReader(mysqlConfig: DBConfiguration, sqlQuery: String, sqlContext: SQLContext): DataFrameReader = {
@@ -367,6 +360,7 @@ object mysqlSchemaExtractor {
             }
         }
         resIndexes.close()
+        // Redshift can only have 8 interleaved sort keys
         setIndexedColumns.toIndexedSeq.take(8)
     }
 
@@ -436,7 +430,7 @@ object mysqlSchemaExtractor {
 
     def getCreateTableString(td: TableDetails, rc: DBConfiguration) = {
         val tableNameWithSchema = getTableNameWithSchema(rc)
-        val fieldNames = td.validFields.map(r => s"\t${r.fieldName} ${r.fieldType}").mkString(",\n")
+        val fieldNames = td.validFields.map(r => s"""\t"${r.fieldName}" ${r.fieldType}""").mkString(",\n")
         val distributionKey = td.distributionKey match {
             case None => "DISTSTYLE EVEN"
             case Some(key) => s"DISTSTYLE KEY \nDISTKEY ( $key ) "
@@ -467,11 +461,11 @@ object mysqlSchemaExtractor {
 
     def performVacuum(conf: DBConfiguration) = {
         logger.info("Initiating the connection for vacuum")
-        val con  = getConnection(conf)
+        val con = getConnection(conf)
         logger.info("creating statement for Connection")
         val stmt = con.createStatement()
-        val vacuumString = getVacuumString(true,conf)        
-        logger.info("Running command {}",vacuumString)
+        val vacuumString = getVacuumString(true, conf)
+        logger.info("Running command {}", vacuumString)
         stmt.executeUpdate(vacuumString)
         stmt.close()
         con.close()

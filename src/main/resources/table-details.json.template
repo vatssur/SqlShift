@@ -8,32 +8,18 @@
         userName: "",
         password: ""
     },
-    "tables": [],
-    "redshift":
-    {
-        "schema": "",
-        "hostname": "",
-        "portNo": "",
-        "userName": "",
-        "password": ""
-    },
-    "s3":
-    {
-        "location": "",
-        "accessKey": "",
-        "secretKey": ""
-    }
-  },
-  {
-    "mysql":
-    {
-        "db": "",
-        hostname: "",
-        portNo: "",
-        userName: "",
-        password: ""
-    },
-    "tables": [],
+     "tables": [
+     {
+        {
+            "name": "",
+             "incremental": {
+                "columnName": "",
+                "from": "",
+                "to": ""
+             }
+        }
+     }
+    ],
     "redshift":
     {
         "schema": "",
