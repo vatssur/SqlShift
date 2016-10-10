@@ -65,7 +65,8 @@ package object mysqlRedshiftLoader {
     case class IncrementalSettings(whereCondition: String,
                                    shallMerge: Boolean = false,
                                    mergeKey: Option[String] = None,
-                                   shallVaccumAfterLoad: Boolean = false)
+                                   shallVaccumAfterLoad: Boolean = false,
+                                   customSelectFromStaging:Option[String] = None)
 
     //Defaults, 
     //If shallSplit = None then shallSplit = true

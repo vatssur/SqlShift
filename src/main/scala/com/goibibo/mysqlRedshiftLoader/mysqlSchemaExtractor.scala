@@ -170,7 +170,7 @@ object mysqlSchemaExtractor {
                 logger.info("No dropStagingTableString and No vacuum, internalConfig.incrementalSettings is None")
                 ("", "", false)
             }
-            case Some(IncrementalSettings(whereCondition, shallMerge, stagingTableMergeKey, shallVaccumAfterLoad)) => {
+            case Some(IncrementalSettings(whereCondition, shallMerge, stagingTableMergeKey, shallVaccumAfterLoad, cs)) => {
                 val dropStatingTableStr = if (shallMerge) s"DROP TABLE IF EXISTS ${redshiftStagingTableName};" else ""
                 logger.info(s"dropStatingTableStr = {}", dropStatingTableStr)
                 val mKey: String = {
@@ -200,9 +200,18 @@ object mysqlSchemaExtractor {
         val preActions = dropAndCreateTableString + (if (dropStagingTableString != "") (dropStagingTableString + createStagingTableString) else "")
         val postActions: String = if (dropStagingTableString != "") {
             s"""DELETE FROM ${redshiftTableName} USING ${redshiftStagingTableName}
-                |    WHERE ${redshiftTableName}.${mergeKey} = ${redshiftStagingTableName}.${mergeKey}; """.stripMargin + "\n" +
-                    s"""INSERT into ${redshiftTableName}
-                        |SELECT * FROM ${redshiftStagingTableName};""".stripMargin
+                |    WHERE ${redshiftTableName}.${mergeKey} = ${redshiftStagingTableName}.${mergeKey}; """.stripMargin + "\n" + (
+                    internalConfig.incrementalSettings.get.customSelectFromStaging match {
+                        case None => {
+                            s"""INSERT into ${redshiftTableName}
+                                |SELECT * FROM ${redshiftStagingTableName};""".stripMargin
+                        }
+                        case Some(customSelect) => {
+                            s"""INSERT into ${redshiftTableName}
+                                |SELECT *,${customSelect} FROM ${redshiftStagingTableName};""".stripMargin
+                        }
+                    })
+                    
         } else {
             ""
         }
