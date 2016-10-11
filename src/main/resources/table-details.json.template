@@ -12,11 +12,11 @@
      {
         {
             "name": "",
-             "incremental": {
-                "columnName": "",
-                "from": "",
-                "to": ""
-             }
+            "incremental": "",
+            "mergeKey": "",
+            "addColumn": "",
+            "partitions": "",
+            "isSplittable": "",
         }
      }
     ],

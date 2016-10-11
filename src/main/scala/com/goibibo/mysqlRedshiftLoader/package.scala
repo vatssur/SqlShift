@@ -48,7 +48,7 @@ package object mysqlRedshiftLoader {
         override def toString: String = {
             s"""{
                 |   Valid Fields: $validFields,
-                |   Invaild Fields: $invalidFields,
+                |   Invalid Fields: $invalidFields,
                 |   Interleaved Sort Keys: $sortKeys,
                 |   Distribution Keys: $distributionKey
                 |}
@@ -65,8 +65,8 @@ package object mysqlRedshiftLoader {
     case class IncrementalSettings(whereCondition: String,
                                    shallMerge: Boolean = false,
                                    mergeKey: Option[String] = None,
-                                   shallVaccumAfterLoad: Boolean = false,
-                                   customSelectFromStaging:Option[String] = None)
+                                   shallVacuumAfterLoad: Boolean = false,
+                                   customSelectFromStaging: Option[String] = None)
 
     //Defaults, 
     //If shallSplit = None then shallSplit = true
@@ -79,17 +79,15 @@ package object mysqlRedshiftLoader {
     //    shallOverwrite = shallOverwrite.get
 
     //mapPartitions => set this with caution, If set to very high number, This can crash the database replica
-    //reducePartitions => Parallism is good for Redshift, Set this to >12, If this is same as the mapPartitions then 
+    //reducePartitions => Parallelism is good for Redshift, Set this to >12, If this is same as the mapPartitions then
     //                      a reduce phase will be saved
     case class InternalConfig(shallSplit: Option[Boolean] = None,
                               shallOverwrite: Option[Boolean] = None,
                               incrementalSettings: Option[IncrementalSettings] = None,
-                              mapPartitions: Int = 12,
-                              reducePartitions: Int = 12)
+                              mapPartitions: Int = 1,
+                              reducePartitions: Int = 1)
 
-    case class AppParams(tableDetailsPath: String,
-                         targetRecordOverwrite: Boolean = true,
-                         targetRecordOverwriteKey: Option[String] = None)
+    case class AppParams(tableDetailsPath: String)
 
     case class AppConfiguration(mysqlConf: DBConfiguration,
                                 redshiftConf: DBConfiguration,
