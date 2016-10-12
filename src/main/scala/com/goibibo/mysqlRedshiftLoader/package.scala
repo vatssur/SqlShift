@@ -89,10 +89,13 @@ package object mysqlRedshiftLoader {
 
     case class AppParams(tableDetailsPath: String)
 
+    case class Status(isSuccessful: Boolean, log: Option[String])
+
     case class AppConfiguration(mysqlConf: DBConfiguration,
                                 redshiftConf: DBConfiguration,
                                 s3Conf: S3Config,
-                                internalConfig: InternalConfig) {
+                                internalConfig: InternalConfig,
+                                var status: Option[Status] = None) {
 
         override def toString: String = {
             val mysqlString: String = "\tmysql-db : " + mysqlConf.db + "\n\tmysql-table : " + mysqlConf.tableName

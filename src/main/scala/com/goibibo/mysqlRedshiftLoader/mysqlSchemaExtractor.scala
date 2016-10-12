@@ -60,7 +60,7 @@ object mysqlSchemaExtractor {
                             if (mapPartitions == 0) {
                                 return (null, null)
                             }
-                            val inc: Long = (nr / mapPartitions) + 1
+                            val inc: Long = Math.ceil(nr / mapPartitions).toLong
                             val predicates = (0 until mapPartitions).toList.
                                     map { n =>
                                         s"$primaryKey BETWEEN ${minMax._1 + n * inc} AND ${minMax._1 - 1 + (n + 1) * inc} "

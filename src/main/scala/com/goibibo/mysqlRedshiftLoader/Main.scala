@@ -162,10 +162,12 @@ object Main {
                 mysqlSchemaExtractor.storeToRedshift(loadedTable._1, loadedTable._2, configuration.redshiftConf,
                     configuration.s3Conf, sqlContext, configuration.internalConfig)
                 logger.info("Successful transfer for configuration\n{}", configuration.toString)
+                configuration.status = Some(Status(isSuccessful = true, None))
             } catch {
                 case e: Exception =>
                     logger.info("Transfer Failed for configuration: \n{}", configuration)
                     logger.error("Stack Trace: ", e.fillInStackTrace())
+                    configuration.status = Some(Status(isSuccessful = false, Some(e.getStackTraceString)))
             }
         }
     }
@@ -186,5 +188,6 @@ object Main {
         logger.info("Total number of tables to transfer are : {}", configurations.length)
 
         run(sqlContext, configurations)
+
     }
 }
