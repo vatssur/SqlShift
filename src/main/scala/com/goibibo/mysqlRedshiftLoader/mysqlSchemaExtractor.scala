@@ -426,9 +426,9 @@ object mysqlSchemaExtractor {
         val fieldNames = td.validFields.map(r => s"""\t"${r.fieldName}" ${r.fieldType}""").mkString(",\n")
         val distributionKey = td.distributionKey match {
             case None => "DISTSTYLE EVEN"
-            case Some(key) => s"DISTSTYLE KEY \nDISTKEY ( $key ) "
+            case Some(key) => s"""DISTSTYLE KEY \nDISTKEY ( "$key" ) """
         }
-        val sortKeys = if (td.sortKeys.nonEmpty) "INTERLEAVED SORTKEY ( " + td.sortKeys.mkString(", ") + " )" else ""
+        val sortKeys = if (td.sortKeys.nonEmpty) "INTERLEAVED SORTKEY ( \"" + td.sortKeys.mkString("\", \"") + "\" )" else ""
 
         s"""CREATE TABLE IF NOT EXISTS $tableNameWithSchema (
             |    $fieldNames
