@@ -7,7 +7,7 @@ import org.apache.spark.sql._
 import org.slf4j.{Logger, LoggerFactory}
 
 import scala.collection.immutable.{Map, Seq, Set}
-
+import java.util.regex._
 /*
 --packages "org.apache.hadoop:hadoop-aws:2.7.2,com.databricks:spark-redshift_2.10:1.1.0,com.amazonaws:aws-java-sdk:1.7.4,mysql:mysql-connector-java:5.1.39"
 --jars=<Some-location>/RedshiftJDBC4-1.1.17.1017.jar
@@ -60,7 +60,7 @@ object mysqlSchemaExtractor {
                             if (mapPartitions == 0) {
                                 return (null, null)
                             }
-                            val inc: Long = Math.ceil(nr / mapPartitions).toLong
+                            val inc: Long = Math.ceil(nr.toDouble / mapPartitions).toLong
                             val predicates = (0 until mapPartitions).toList.
                                     map { n =>
                                         s"$primaryKey BETWEEN ${minMax._1 + n * inc} AND ${minMax._1 - 1 + (n + 1) * inc} "
@@ -191,9 +191,21 @@ object mysqlSchemaExtractor {
                         case None =>
                             s"""INSERT into $redshiftTableName
                                 |SELECT * FROM $redshiftStagingTableName;""".stripMargin
-                        case Some(customSelect) =>
-                            s"""INSERT into $redshiftTableName
+                        case Some(customSelect) => {
+                            val pattern = Pattern.compile("(?:AS|as)\\s*(\\w+)\\s*(?:,|$)")
+                            val matcher = pattern.matcher(customSelect)
+                            val customFields = scala.collection.mutable.ListBuffer.empty[String]
+                            while(matcher.find()) { 
+                                val matched = matcher.group(1); 
+                                customFields += matched
+                                logger.info("matched =>{}", matched)
+                            }
+                            val tableColunms = tableDetails.validFields.map(_.fieldName).mkString(",")
+                            val customColumns = if(customFields.size > 0) s"( ${tableColunms},${customFields} )" else ""
+                            logger.info("customColumns =>{}", customColumns)
+                            s"""INSERT into $redshiftTableName ${customColumns}
                                 |SELECT *,$customSelect FROM $redshiftStagingTableName;""".stripMargin
+                        }
                     })
                     
         } else {
