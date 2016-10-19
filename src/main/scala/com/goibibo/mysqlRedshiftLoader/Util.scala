@@ -2,8 +2,8 @@ package com.goibibo.mysqlRedshiftLoader
 
 import java.sql.ResultSet
 
-import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.sql.SQLContext
+import org.apache.spark.{SparkConf, SparkContext}
 import org.slf4j.{Logger, LoggerFactory}
 
 /**
@@ -131,5 +131,22 @@ object Util {
         System.setProperty("com.amazonaws.services.s3.enableV4", "true")
         sc.hadoopConfiguration.set("fs.s3a.endpoint", "s3.ap-south-1.amazonaws.com")
         (sc, sqlContext)
+    }
+
+    /**
+      * Formatted Status
+      * @param appConfigurations
+      * @return
+      */
+    def formattedInfoSection(appConfigurations: Seq[AppConfiguration]): String = {
+        var formattedString = "-" * 100 + "\n"
+        formattedString += String.format("|%20s| %40s| %20s| 12%s|\n", "MySQL DB", "Table Name", "Redshift Schema",
+            "isSuccessful")
+        for (appConf <- appConfigurations) {
+            formattedString += String.format("|%20s| %40s| %20s| 10%s|\n", appConf.mysqlConf.db,
+                appConf.mysqlConf.tableName, appConf.redshiftConf.schema, appConf.status.get.isSuccessful.toString)
+        }
+        formattedString += "-" * 100 + "\n"
+        formattedString
     }
 }

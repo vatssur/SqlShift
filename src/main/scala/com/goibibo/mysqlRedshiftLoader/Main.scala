@@ -165,7 +165,7 @@ object Main {
             try {
                 val mySqlTableName = s"${configuration.mysqlConf.db}.${configuration.mysqlConf.tableName}"
                 val redshiftTableName = s"${configuration.redshiftConf.schema}.${configuration.mysqlConf.tableName}"
-                sqlContext.sparkContext.setJobDescription(s"${mySqlTableName} -> ${redshiftTableName}")
+                sqlContext.sparkContext.setJobDescription(s"$mySqlTableName => $redshiftTableName")
                 val loadedTable: (DataFrame, TableDetails) = mysqlSchemaExtractor.loadToSpark(configuration.mysqlConf,
                     sqlContext, configuration.internalConfig)
                 if (loadedTable._1 == null) {
@@ -212,5 +212,6 @@ object Main {
                 prop.getProperty("alert.to"), prop.getProperty("alert.cc"))
             new MailUtil(mailParams).send(configurations.toList)
         }
+        Util.formattedInfoSection(configurations)
     }
 }
