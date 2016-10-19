@@ -135,18 +135,22 @@ object Util {
 
     /**
       * Formatted Status
+      *
       * @param appConfigurations
       * @return
       */
     def formattedInfoSection(appConfigurations: Seq[AppConfiguration]): String = {
-        var formattedString = "-" * 100 + "\n"
-        formattedString += String.format("|%20s| %40s| %20s| 12%s|\n", "MySQL DB", "Table Name", "Redshift Schema",
-            "isSuccessful")
+        var formattedString = "-" * 106 + "\n"
+        formattedString += String.format("|%4s| %20s| %40s| %20s| %12s|\n", "SNo", "MySQL DB", "Table Name",
+            "Redshift Schema", "isSuccessful")
+        formattedString += "-" * 106 + "\n"
+        var sno = 1
         for (appConf <- appConfigurations) {
-            formattedString += String.format("|%20s| %40s| %20s| 10%s|\n", appConf.mysqlConf.db,
+            formattedString += String.format("|%4s| %20s| %40s| %20s| %12s|\n", sno.toString, appConf.mysqlConf.db,
                 appConf.mysqlConf.tableName, appConf.redshiftConf.schema, appConf.status.get.isSuccessful.toString)
+            formattedString += "-" * 106 + "\n"
+            sno += 1
         }
-        formattedString += "-" * 100 + "\n"
         formattedString
     }
 }

@@ -212,6 +212,6 @@ object Main {
                 prop.getProperty("alert.to"), prop.getProperty("alert.cc"))
             new MailUtil(mailParams).send(configurations.toList)
         }
-        Util.formattedInfoSection(configurations)
+        logger.info("Info Section: \n{}",Util.formattedInfoSection(configurations))
     }
 }
