@@ -1,7 +1,7 @@
 /**
   * Created by rama on 13/10/16.
   */
-package com.goibibo.mysqlRedshiftLoader.monitoring
+package com.goibibo.mysqlRedshiftLoader.alerting
 
 import java.util.Properties
 import javax.mail.Message.RecipientType
@@ -9,12 +9,8 @@ import javax.mail.internet.{InternetAddress, MimeMessage, _}
 import javax.mail.{Session, Transport}
 import com.goibibo.mysqlRedshiftLoader._
 
-/** Mail constructor.
-  *  @constructor Mail
-  *  //@param host Host
-  */
-class Mail {
-  val session = Session.getDefaultInstance(new Properties() { put("mail.smtp.host", System.getenv("host").toString) })
+class MailUtil(mailParams: MailParams) {
+  val session = Session.getDefaultInstance(new Properties() { put("mail.smtp.host", mailParams.host) })
 
 
   /** Send email message.
@@ -33,8 +29,8 @@ class Mail {
     var text = "<html><body><table border='1' style='width:100%' bgcolor='#F5F5F5'><tr> <th size=6>Mysql schema</th><th size=6>Mysql table_name </th><th size=6>Redshift schema</th><th size=6>Status</th><th size=6>Error</th></tr>"
 
 
-    val tos:List[String]=System.getenv("TO").toString.split(",").toList
-    val ccs:List[String]=System.getenv("CC").toString().split(",").toList
+    val tos:List[String]=mailParams.to.split(",").toList
+    val ccs:List[String]=mailParams.cc.split(",").toList
 
     var errorCnt=0
     var successCnt=0

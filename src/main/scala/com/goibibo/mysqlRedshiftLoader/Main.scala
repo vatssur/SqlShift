@@ -1,9 +1,10 @@
 package com.goibibo.mysqlRedshiftLoader
 
 import java.io.{File, InputStream}
+import java.util.Properties
 
 import com.goibibo.mysqlRedshiftLoader
-import com.goibibo.mysqlRedshiftLoader.monitoring.Mail
+import com.goibibo.mysqlRedshiftLoader.alerting.MailUtil
 import org.apache.spark.sql.{DataFrame, SQLContext}
 import org.json4s._
 import org.json4s.native.JsonMethods._
@@ -23,6 +24,13 @@ object Main {
                     .text("Table details json file path including")
                     .required()
                     .valueName("<path to Json>")
+                    .action((x, c) => c.copy(tableDetailsPath = x))
+
+            opt[String]("mailDetails")
+                    .abbr("mail")
+                    .text("Mail details property file path")
+                    .optional()
+                    .valueName("<path to properties file>")
                     .action((x, c) => c.copy(tableDetailsPath = x))
 
             //            opt[Int]("partitions")
@@ -88,7 +96,7 @@ object Main {
                 for (table <- tables) {
                     val (mysqlConf: DBConfiguration, redshiftConf: DBConfiguration, s3Conf: S3Config) =
                         getDBsConf(mysqlJson, redshiftJson, s3Json, table)
-                    logger.info("\n------------- Start :: table: {} -------------",(table \ "name").extract[String])
+                    logger.info("\n------------- Start :: table: {} -------------", (table \ "name").extract[String])
                     val incrementalColumn: JValue = table \ "incremental"
                     var internalConfig: InternalConfig = null
 
@@ -140,7 +148,7 @@ object Main {
                             mapPartitions = partitions, reducePartitions = partitions)
                     }
                     configurations = configurations :+ AppConfiguration(mysqlConf, redshiftConf, s3Conf, internalConfig)
-                    logger.info("\n------------- End :: table: {} -------------",(table \ "name").extract[String])
+                    logger.info("\n------------- End :: table: {} -------------", (table \ "name").extract[String])
                 }
             }
         } finally {
@@ -175,11 +183,21 @@ object Main {
 
     def main(args: Array[String]): Unit = {
         logger.info("Reading Arguments")
-        val appParams: AppParams = parser.parse(args, AppParams(null)).orNull
+        val appParams: AppParams = parser.parse(args, AppParams(null, null)).orNull
         if (appParams.tableDetailsPath == null) {
             logger.error("Table details json file is not provided!!!")
             throw new NullPointerException("Table details json file is not provided!!!")
         }
+
+        if (appParams.mailDetailsPath == null) {
+            logger.error("Mail details properties file is not provided!!!")
+            throw new NullPointerException("Mail details properties file is not provided!!!")
+        }
+
+        val prop: Properties = new Properties()
+        prop.load(new File(appParams.mailDetailsPath).toURI.toURL.openStream())
+        val mailParams: MailParams = MailParams(prop.getProperty("alert.host"), null,
+            prop.getProperty("alert.to"), prop.getProperty("alert.to"))
 
         val (_, sqlContext) = Util.getSparkContext
 
@@ -189,6 +207,6 @@ object Main {
         logger.info("Total number of tables to transfer are : {}", configurations.length)
 
         run(sqlContext, configurations)
-        new Mail().send(configurations.toList)
+        new MailUtil(mailParams).send(configurations.toList)
     }
 }
