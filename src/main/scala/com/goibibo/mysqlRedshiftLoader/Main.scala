@@ -163,6 +163,9 @@ object Main {
         for (configuration <- configurations) {
             logger.info("Configuration: \n{}", configuration.toString)
             try {
+                val mySqlTableName = s"${configuration.mysqlConf.db}.${configuration.mysqlConf.tableName}"
+                val redshiftTableName = s"${configuration.redshiftConf.schema}.${configuration.mysqlConf.tableName}"
+                sqlContext.sparkContext.setJobDescription(s"${mySqlTableName} -> ${redshiftTableName}")
                 val loadedTable: (DataFrame, TableDetails) = mysqlSchemaExtractor.loadToSpark(configuration.mysqlConf,
                     sqlContext, configuration.internalConfig)
                 if (loadedTable._1 == null) {
