@@ -10,14 +10,12 @@
     },
      "tables": [
      {
-        {
-            "name": "",
-            "incremental": "",
-            "mergeKey": "",
-            "addColumn": "",
-            "partitions": "",
-            "isSplittable": "",
-        }
+         "name": "",
+         "incremental": "",
+         "mergeKey": "",
+         "addColumn": "",
+         "partitions": "",
+         "isSplittable": ""
      }
     ],
     "redshift":

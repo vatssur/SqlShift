@@ -192,16 +192,6 @@ object Main {
             throw new NullPointerException("Table details json file is not provided!!!")
         }
 
-        if (appParams.mailDetailsPath == null) {
-            logger.error("Mail details properties file is not provided!!!")
-            throw new NullPointerException("Mail details properties file is not provided!!!")
-        }
-
-        val prop: Properties = new Properties()
-        prop.load(new File(appParams.mailDetailsPath).toURI.toURL.openStream())
-        val mailParams: MailParams = MailParams(prop.getProperty("alert.host"), null,
-            prop.getProperty("alert.to"), prop.getProperty("alert.cc"))
-
         val (_, sqlContext) = Util.getSparkContext
 
         logger.info("Getting all configurations")
@@ -210,6 +200,17 @@ object Main {
         logger.info("Total number of tables to transfer are : {}", configurations.length)
 
         run(sqlContext, configurations)
-        new MailUtil(mailParams).send(configurations.toList)
+
+        if (appParams.mailDetailsPath == null) {
+            logger.info("Mail details properties file is not provided!!!")
+            logger.info("Disabling alerting")
+        } else {
+            logger.info("Alerting developers....")
+            val prop: Properties = new Properties()
+            prop.load(new File(appParams.mailDetailsPath).toURI.toURL.openStream())
+            val mailParams: MailParams = MailParams(prop.getProperty("alert.host"), null,
+                prop.getProperty("alert.to"), prop.getProperty("alert.cc"))
+            new MailUtil(mailParams).send(configurations.toList)
+        }
     }
 }

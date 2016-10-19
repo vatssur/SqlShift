@@ -1,14 +1,3 @@
-# mysql-redshift-loader
-
-This program will transfer tables from MySQL to Redshift.
-
-## Usage
-
-You can build using **SBT** and create fat jar using `sbt assembly`.
-Need table details with mysql, redshift & s3 configuration in json format.
-Json schema is :-
-
-```JSON
 {
   "$schema": "http://json-schema.org/draft-04/schema#",
   "type": "array",
@@ -69,11 +58,11 @@ Json schema is :-
             },
             "partitions": {
               "description": "Number of partitions to set(default: will work if primary key is integer and isSplittable is true",
-              "type": "integer"
+              "type": "string"
             },
             "isSplittable": {
-              "description": "Should do partitions",
-              "type": "boolean"
+              "description": "Can be partitioned",
+              "type": "string"
             }
           },
           "required": [
@@ -140,17 +129,3 @@ Json schema is :-
     ]
   }
 }
-```
-
-Mail configuration for alerting :-
-
-```PROPERTIES
-alert.host =
-alert.to =
-alert.cc =
-```
-
-Submitting spark job on yarn :-
-```
-spark-submit --class com.goibibo.mysqlRedshiftLoader.Main --master yarn --packages "org.apache.hadoop:hadoop-aws:2.7.2,com.databricks:spark-redshift_2.10:1.1.0,com.amazonaws:aws-java-sdk:1.7.4,mysql:mysql-connector-java:5.1.39" --jars="/home/centos/sunny/RedshiftJDBC4-1.1.17.1017.jar,/home/centos/sunny/mysql-redshift-import/target/scala-2.10/mysql-redshift-loader_2.10-0.1.jar"  mysql-redshift-loader-assembly-0.1.jar -td table-details.json -mail mail.conf
-```
