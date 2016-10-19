@@ -3,6 +3,7 @@ package com.goibibo.mysqlRedshiftLoader
 import java.io.{File, InputStream}
 
 import com.goibibo.mysqlRedshiftLoader
+import com.goibibo.mysqlRedshiftLoader.monitoring.Mail
 import org.apache.spark.sql.{DataFrame, SQLContext}
 import org.json4s._
 import org.json4s.native.JsonMethods._
@@ -167,7 +168,7 @@ object Main {
                 case e: Exception =>
                     logger.info("Transfer Failed for configuration: \n{}", configuration)
                     logger.error("Stack Trace: ", e.fillInStackTrace())
-                    configuration.status = Some(Status(isSuccessful = false, Some(e.getStackTraceString)))
+                    configuration.status = Some(Status(isSuccessful = false, Some(e.getMessage + "\n" + e.getStackTraceString)))
             }
         }
     }
@@ -188,6 +189,6 @@ object Main {
         logger.info("Total number of tables to transfer are : {}", configurations.length)
 
         run(sqlContext, configurations)
-
+        new Mail().send(configurations.toList)
     }
 }
