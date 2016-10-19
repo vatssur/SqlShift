@@ -200,7 +200,7 @@ object Main {
         val prop: Properties = new Properties()
         prop.load(new File(appParams.mailDetailsPath).toURI.toURL.openStream())
         val mailParams: MailParams = MailParams(prop.getProperty("alert.host"), null,
-            prop.getProperty("alert.to"), prop.getProperty("alert.to"))
+            prop.getProperty("alert.to"), prop.getProperty("alert.cc"))
 
         val (_, sqlContext) = Util.getSparkContext
 
