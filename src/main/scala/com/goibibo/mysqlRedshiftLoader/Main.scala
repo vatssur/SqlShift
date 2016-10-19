@@ -31,7 +31,7 @@ object Main {
                     .text("Mail details property file path")
                     .optional()
                     .valueName("<path to properties file>")
-                    .action((x, c) => c.copy(tableDetailsPath = x))
+                    .action((x, c) => c.copy(mailDetailsPath = x))
 
             //            opt[Int]("partitions")
             //                    .abbr("p")
