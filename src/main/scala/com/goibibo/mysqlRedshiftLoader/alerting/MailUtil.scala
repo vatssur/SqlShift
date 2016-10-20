@@ -12,7 +12,7 @@ import com.goibibo.mysqlRedshiftLoader._
 import org.slf4j.{Logger, LoggerFactory}
 
 class MailUtil(mailParams: MailParams) {
-    private val logger: Logger = LoggerFactory.getLogger(this.getClass)
+    private val logger: Logger = LoggerFactory.getLogger(classOf[MailUtil])
     val session = Session.getDefaultInstance(new Properties() {
         put("mail.smtp.host", mailParams.host)
     })
@@ -36,7 +36,7 @@ class MailUtil(mailParams: MailParams) {
 
         val tos: List[String] = mailParams.to.split(",").toList
         val ccs: List[String] = mailParams.cc.split(",").toList
-        logger.info("Mail to: {} and cc: {}", tos, ccs)
+        logger.info(s"Mail to: ${mailParams.to} and cc: ${mailParams.cc}")
 
         var errorCnt = 0
         var successCnt = 0
@@ -65,7 +65,7 @@ class MailUtil(mailParams: MailParams) {
         message.setSubject(subject)
         message.setText(text)
 
-        val mimeBdyPart = new MimeBodyPart();
+        val mimeBdyPart = new MimeBodyPart()
 
         mimeBdyPart.setContent(text, "text/html; charset=utf-8")
 
