@@ -61,7 +61,7 @@ class MailUtil(mailParams: MailParams) {
         for (to <- tos)
             message.addRecipient(RecipientType.TO, new InternetAddress(to))
         for (cc <- ccs)
-            message.addRecipient(RecipientType.TO, new InternetAddress(cc))
+            message.addRecipient(RecipientType.CC, new InternetAddress(cc))
         message.setSubject(subject)
         message.setText(text)
 

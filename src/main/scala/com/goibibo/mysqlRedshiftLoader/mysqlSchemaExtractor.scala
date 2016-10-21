@@ -202,9 +202,9 @@ object mysqlSchemaExtractor {
                             }
                             val tableColunms = tableDetails.validFields.map(_.fieldName).mkString(",")
                             val customFieldsStr = customFields.mkString(",")
-                            val customColumns = if(customFields.size > 0) s"( ${tableColunms},${customFieldsStr} )" else ""
+                            val customColumns = if(customFields.nonEmpty) s"( $tableColunms,$customFieldsStr )" else ""
                             logger.info("customColumns =>{}", customColumns)
-                            s"""INSERT into $redshiftTableName ${customColumns}
+                            s"""INSERT into $redshiftTableName $customColumns
                                 |SELECT *,$customSelect FROM $redshiftStagingTableName;""".stripMargin
                         }
                     })

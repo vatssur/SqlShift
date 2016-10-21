@@ -87,7 +87,9 @@ package object mysqlRedshiftLoader {
                               mapPartitions: Int = 1,
                               reducePartitions: Int = 1)
 
-    case class AppParams(tableDetailsPath: String, mailDetailsPath: String)
+    case class AppParams(tableDetailsPath: String,
+                         mailDetailsPath: String,
+                         alertOnFailure:Boolean = false)
 
     case class MailParams(host: String,
                           password: String,
