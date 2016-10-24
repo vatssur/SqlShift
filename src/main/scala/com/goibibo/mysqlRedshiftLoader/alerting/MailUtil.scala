@@ -31,7 +31,9 @@ class MailUtil(mailParams: MailParams) {
         val from = "noreply_etl@ibibogroup.com"
         logger.info("Mail from: {}", from)
         var subject = "Mysql to Redshift Load info"
-        var text = "<html><body><table border='1' style='width:100%' bgcolor='#F5F5F5'><tr> <th size=6>Mysql schema</th><th size=6>Mysql table_name </th><th size=6>Redshift schema</th><th size=6>Status</th><th size=6>Error</th></tr>"
+        var text = "<html><body><table border='1' style='width:100%' bgcolor='#F5F5F5'><tr> <th size=6>Mysql schema" +
+                "</th><th size=6>Mysql table_name </th><th size=6>Redshift schema</th><th size=6>Status</th><th size=6>" +
+                "Error</th></tr>"
 
 
         val tos: List[String] = mailParams.to.split(",").toList
@@ -42,12 +44,15 @@ class MailUtil(mailParams: MailParams) {
         var successCnt = 0
         for (i <- obj) {
 
-            text += "<tr><td bgcolor='#FFE4C4'>" + i.mysqlConf.db + "</td><td bgcolor='#E0FFFF'>" + i.mysqlConf.tableName + "</td><td bgcolor='#F5F5DC'>" + i.redshiftConf.schema + "</td><td bgcolor='#E0FFFF'>" + i.status.get.isSuccessful + "</td><td bgcolor='#F0FFFF'>" + i.status.get.log + "</td></tr>"
+            text += "<tr><td bgcolor='#FFE4C4'>" + i.mysqlConf.db + "</td><td bgcolor='#E0FFFF'>" +
+                    i.mysqlConf.tableName + "</td><td bgcolor='#F5F5DC'>" + i.redshiftConf.schema +
+                    "</td><td bgcolor='#E0FFFF'>" + i.status.get.isSuccessful + "</td><td bgcolor='#F0FFFF'>"
 
             if (i.status.get.isSuccessful) {
                 successCnt += 1
             }
             else {
+                text += "%s\n%s</td></tr>".format(i.status.get.e.getMessage, i.status.get.e.getStackTraceString)
                 errorCnt += 1
             }
         }

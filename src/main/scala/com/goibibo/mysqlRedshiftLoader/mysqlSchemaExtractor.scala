@@ -255,7 +255,7 @@ object mysqlSchemaExtractor {
         if (shallVaccumAfterLoad) {
             performVacuum(redshiftConf)
         } else {
-            logger.info("Not opting for Vacuum, shallVaccumAfterLoad is false")
+            logger.info("Not opting for Vacuum, shallVacuumAfterLoad is false")
         }
     }
 

@@ -137,7 +137,7 @@ object Util {
         (sc, sqlContext)
     }
 
-    def getDBsConf(mysqlJson: JValue, redshiftJson: JValue, s3Json: JValue, table: JValue):
+    private def getDBsConf(mysqlJson: JValue, redshiftJson: JValue, s3Json: JValue, table: JValue):
     (mysqlRedshiftLoader.DBConfiguration, mysqlRedshiftLoader.DBConfiguration, mysqlRedshiftLoader.S3Config) = {
         implicit val formats = DefaultFormats
 
@@ -156,6 +156,63 @@ object Util {
         (mysqlConf, redshiftConf, s3Conf)
     }
 
+    private def getAppConfiguration(mysqlConf: DBConfiguration, redshiftConf: DBConfiguration, s3Conf: S3Config, table: JValue): AppConfiguration = {
+        implicit val formats = DefaultFormats
+
+        logger.info("\n------------- Start :: table: {} -------------", (table \ "name").extract[String])
+        val incrementalColumn: JValue = table \ "incremental"
+        var internalConfig: InternalConfig = null
+
+        val isSplittableValue = table \ "isSplittable"
+        val isSplittable: Boolean = if (isSplittableValue != JNothing && isSplittableValue != JNull) {
+            isSplittableValue.extract[Boolean]
+        } else {
+            true
+        }
+        logger.info("Whether table is splittable: {}", isSplittable)
+
+        val partitionsValue = table \ "partitions"
+        var partitions: Int = 1
+        if (isSplittable) {
+            partitions = if (partitionsValue == JNothing || partitionsValue == JNull)
+                Util.getPartitions(mysqlConf)
+            else
+                partitionsValue.extract[Int]
+        }
+        logger.info("Number of partitions: {}", partitions)
+
+        if (incrementalColumn == JNothing || incrementalColumn == JNull) {
+            logger.info("Table is not incremental")
+            internalConfig = InternalConfig(shallSplit = Some(isSplittable), mapPartitions = partitions,
+                reducePartitions = partitions)
+        } else {
+            val whereCondition: String = incrementalColumn.extract[String]
+            logger.info("Table is incremental with condition: {}", whereCondition)
+            val mergeKeyValue: JValue = table \ "mergeKey"
+            val mergeKey: Option[String] = if (mergeKeyValue == JNothing || mergeKeyValue == JNull)
+                None
+            else
+                Some(mergeKeyValue.extract[String])
+            logger.info("Merge Key: {}", mergeKey.orNull)
+
+            val addColumnValue: JValue = table \ "addColumn"
+            val addColumn: Option[String] = if (addColumnValue == JNothing || addColumnValue == JNull)
+                None
+            else
+                Some(addColumnValue.extract[String])
+            logger.info("Add Column: {}", addColumn.orNull)
+
+            val incrementalSettings: IncrementalSettings = IncrementalSettings(whereCondition,
+                shallMerge = true, mergeKey = mergeKey, shallVacuumAfterLoad = true,
+                customSelectFromStaging = addColumn)
+
+            val settings: Some[IncrementalSettings] = Some(incrementalSettings)
+            internalConfig = InternalConfig(shallSplit = Some(isSplittable), incrementalSettings = settings,
+                mapPartitions = partitions, reducePartitions = partitions)
+        }
+        AppConfiguration(mysqlConf, redshiftConf, s3Conf, internalConfig)
+    }
+
     def getAppConfigurations(jsonPath: String): Seq[AppConfiguration] = {
         var configurations: Seq[AppConfiguration] = Seq[AppConfiguration]()
         implicit val formats = DefaultFormats
@@ -172,58 +229,14 @@ object Util {
                 for (table <- tables) {
                     val (mysqlConf: DBConfiguration, redshiftConf: DBConfiguration, s3Conf: S3Config) =
                         getDBsConf(mysqlJson, redshiftJson, s3Json, table)
-                    logger.info("\n------------- Start :: table: {} -------------", (table \ "name").extract[String])
-                    val incrementalColumn: JValue = table \ "incremental"
-                    var internalConfig: InternalConfig = null
-
-                    val isSplittableValue = table \ "isSplittable"
-                    val isSplittable: Boolean = if (isSplittableValue != JNothing && isSplittableValue != JNull) {
-                        isSplittableValue.extract[Boolean]
-                    } else {
-                        true
+                    var configuration: AppConfiguration = AppConfiguration(mysqlConf, redshiftConf, s3Conf, null)
+                    try {
+                        configuration = getAppConfiguration(mysqlConf, redshiftConf, s3Conf, table)
+                    } catch {
+                        case e: Exception =>
+                            configuration.status = Some(Status(isSuccessful = false, e))
                     }
-                    logger.info("Whether table is splittable: {}", isSplittable)
-
-                    val partitionsValue = table \ "partitions"
-                    var partitions: Int = 1
-                    if (isSplittable) {
-                        partitions = if (partitionsValue == JNothing || partitionsValue == JNull)
-                            Util.getPartitions(mysqlConf)
-                        else
-                            partitionsValue.extract[Int]
-                    }
-                    logger.info("Number of partitions: {}", partitions)
-
-                    if (incrementalColumn == JNothing || incrementalColumn == JNull) {
-                        logger.info("Table is not incremental")
-                        internalConfig = InternalConfig(shallSplit = Some(isSplittable), mapPartitions = partitions,
-                            reducePartitions = partitions)
-                    } else {
-                        val whereCondition: String = incrementalColumn.extract[String]
-                        logger.info("Table is incremental with condition: {}", whereCondition)
-                        val mergeKeyValue: JValue = table \ "mergeKey"
-                        val mergeKey: Option[String] = if (mergeKeyValue == JNothing || mergeKeyValue == JNull)
-                            None
-                        else
-                            Some(mergeKeyValue.extract[String])
-                        logger.info("Merge Key: {}", mergeKey.orNull)
-
-                        val addColumnValue: JValue = table \ "addColumn"
-                        val addColumn: Option[String] = if (addColumnValue == JNothing || addColumnValue == JNull)
-                            None
-                        else
-                            Some(addColumnValue.extract[String])
-                        logger.info("Add Column: {}", addColumn.orNull)
-
-                        val incrementalSettings: IncrementalSettings = IncrementalSettings(whereCondition,
-                            shallMerge = true, mergeKey = mergeKey, shallVacuumAfterLoad = true,
-                            customSelectFromStaging = addColumn)
-
-                        val settings: Some[IncrementalSettings] = Some(incrementalSettings)
-                        internalConfig = InternalConfig(shallSplit = Some(isSplittable), incrementalSettings = settings,
-                            mapPartitions = partitions, reducePartitions = partitions)
-                    }
-                    configurations = configurations :+ AppConfiguration(mysqlConf, redshiftConf, s3Conf, internalConfig)
+                    configurations = configurations :+ configuration
                     logger.info("\n------------- End :: table: {} -------------", (table \ "name").extract[String])
                 }
             }
@@ -234,7 +247,7 @@ object Util {
     }
 
     def anyFailures(appConfigurations: Seq[AppConfiguration]): Boolean = {
-        for(appConfiguration <- appConfigurations) {
+        for (appConfiguration <- appConfigurations) {
             if (appConfiguration.status.isEmpty || !appConfiguration.status.get.isSuccessful)
                 return true
         }

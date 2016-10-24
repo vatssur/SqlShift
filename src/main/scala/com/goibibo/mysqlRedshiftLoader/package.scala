@@ -89,7 +89,8 @@ package object mysqlRedshiftLoader {
 
     case class AppParams(tableDetailsPath: String,
                          mailDetailsPath: String,
-                         alertOnFailure:Boolean = false)
+                         alertOnFailure: Boolean = false,
+                         retryCount: Int = 0)
 
     case class MailParams(host: String,
                           password: String,
@@ -97,7 +98,7 @@ package object mysqlRedshiftLoader {
                           cc: String
                          )
 
-    case class Status(isSuccessful: Boolean, log: Option[String])
+    case class Status(isSuccessful: Boolean, e: Exception)
 
     case class AppConfiguration(mysqlConf: DBConfiguration,
                                 redshiftConf: DBConfiguration,

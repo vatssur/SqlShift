@@ -36,29 +36,12 @@ object Main {
                     .optional()
                     .action((_, c) => c.copy(alertOnFailure = true))
 
-            //            opt[Int]("partitions")
-            //                    .abbr("p")
-            //                    .text("Partitions to be done(Optional)")
-            //                    .valueName("<partitions>")
-            //                    .action((x, c) => c.copy(partitions = Option(x)))
-            //
-            //            opt[Boolean]("targetRecordOverwrite")
-            //                    .abbr("ro")
-            //                    .text("To overwrite updated records in redshift")
-            //                    .valueName("<true/false>")
-            //                    .action((x, c) => c.copy(targetRecordOverwrite = x))
-            //
-            //            opt[Boolean]("targetRecordOverwrite")
-            //                    .abbr("ro")
-            //                    .text("To overwrite updated records in redshift")
-            //                    .valueName("<true/false>")
-            //                    .action((x, c) => c.copy(targetRecordOverwrite = x))
-            //
-            //            opt[String]("targetRecordOverwriteKey")
-            //                    .abbr("rok")
-            //                    .text("To overwrite updated records on particular keys in redshift")
-            //                    .valueName("<key>")
-            //                    .action((x, c) => c.copy(targetRecordOverwriteKey = Option(x)))
+            opt[Int]("retryCount")
+                    .abbr("rc")
+                    .text("How many times to retry on failed transfers")
+                    .optional()
+                    .valueName("<count>")
+                    .action((x, c) => c.copy(retryCount = x))
 
             help("help")
                     .text("Usage Of arguments")
@@ -68,27 +51,56 @@ object Main {
         implicit val crashOnInvalidValue: Boolean = true
 
         for (configuration <- configurations) {
-            logger.info("Configuration: \n{}", configuration.toString)
-            try {
-                val mySqlTableName = s"${configuration.mysqlConf.db}.${configuration.mysqlConf.tableName}"
-                val redshiftTableName = s"${configuration.redshiftConf.schema}.${configuration.mysqlConf.tableName}"
-                sqlContext.sparkContext.setJobDescription(s"$mySqlTableName => $redshiftTableName")
-                val loadedTable: (DataFrame, TableDetails) = mysqlSchemaExtractor.loadToSpark(configuration.mysqlConf,
-                    sqlContext, configuration.internalConfig)
-                if (loadedTable._1 == null) {
-                    throw new Exception("Data frame is null.")
+            if (configuration.status.isDefined && !configuration.status.get.isSuccessful) {
+                val e: Exception = configuration.status.get.e
+                logger.warn(s"Skipping configuration: ${configuration.toString} " +
+                        s"with reason: ${e.getMessage}\n${e.getStackTraceString}")
+            } else {
+                logger.info("Configuration: \n{}", configuration.toString)
+                try {
+                    val mySqlTableName = s"${configuration.mysqlConf.db}.${configuration.mysqlConf.tableName}"
+                    val redshiftTableName = s"${configuration.redshiftConf.schema}.${configuration.mysqlConf.tableName}"
+                    sqlContext.sparkContext.setJobDescription(s"$mySqlTableName => $redshiftTableName")
+                    val loadedTable: (DataFrame, TableDetails) = mysqlSchemaExtractor.loadToSpark(configuration.mysqlConf,
+                        sqlContext, configuration.internalConfig)
+                    if (loadedTable._1 != null) {
+                        logger.info("No data to ingest. Data frame is null!!!")
+                        mysqlSchemaExtractor.storeToRedshift(loadedTable._1, loadedTable._2, configuration.redshiftConf,
+                            configuration.s3Conf, sqlContext, configuration.internalConfig)
+                    }
+                    logger.info("Successful transfer for configuration\n{}", configuration.toString)
+                    configuration.status = Some(Status(isSuccessful = true, null))
+                } catch {
+                    case e: Exception =>
+                        logger.info("Transfer Failed for configuration: \n{}", configuration)
+                        logger.error("Stack Trace: ", e.fillInStackTrace())
+                        configuration.status = Some(Status(isSuccessful = false, e))
                 }
-                mysqlSchemaExtractor.storeToRedshift(loadedTable._1, loadedTable._2, configuration.redshiftConf,
-                    configuration.s3Conf, sqlContext, configuration.internalConfig)
-                logger.info("Successful transfer for configuration\n{}", configuration.toString)
-                configuration.status = Some(Status(isSuccessful = true, None))
-            } catch {
-                case e: Exception =>
-                    logger.info("Transfer Failed for configuration: \n{}", configuration)
-                    logger.error("Stack Trace: ", e.fillInStackTrace())
-                    configuration.status = Some(Status(isSuccessful = false, Some(e.getMessage + "\n" + e.getStackTraceString)))
             }
         }
+    }
+
+    private def rerun(sqlContext: SQLContext, configurations: Seq[AppConfiguration], retryCount: Int): Unit = {
+        var retryCnt: Int = retryCount
+        var failedConfigurations: Seq[AppConfiguration] = null
+        while (retryCnt > 0) {
+            logger.info("Retrying with retry count: {}", retryCnt)
+            failedConfigurations = Seq()
+            for (configuration <- configurations) {
+                if (configuration.status.isDefined && !configuration.status.get.isSuccessful &&
+                        configuration.status.get.e.getMessage.contains("VACUUM is running")) {
+                    failedConfigurations = failedConfigurations :+ configuration
+                }
+            }
+            if (failedConfigurations.isEmpty) {
+                logger.info("All failed tables are successfully transferred due to VACUUM")
+                return
+            } else {
+                run(sqlContext, failedConfigurations)
+            }
+            retryCnt -= 1
+        }
+        logger.info("Some failed tables are still left")
     }
 
     def main(args: Array[String]): Unit = {
@@ -107,7 +119,10 @@ object Main {
         logger.info("Total number of tables to transfer are : {}", configurations.length)
 
         run(sqlContext, configurations)
-
+        if (appParams.retryCount > 0 && Util.anyFailures(configurations)) {
+            logger.info("Found failed transfers with retry count: {}", appParams.retryCount)
+            rerun(sqlContext, configurations, retryCount = appParams.retryCount)
+        }
         if (appParams.mailDetailsPath == null) {
             logger.info("Mail details properties file is not provided!!!")
             logger.info("Disabling alerting")
