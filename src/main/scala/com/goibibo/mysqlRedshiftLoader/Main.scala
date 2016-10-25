@@ -47,11 +47,11 @@ object Main {
                     .text("Usage Of arguments")
         }
 
-    private def run(sqlContext: SQLContext, configurations: Seq[AppConfiguration]): Unit = {
+    private def run(sqlContext: SQLContext, configurations: Seq[AppConfiguration], isRetry: Boolean): Unit = {
         implicit val crashOnInvalidValue: Boolean = true
 
         for (configuration <- configurations) {
-            if (configuration.status.isDefined && !configuration.status.get.isSuccessful) {
+            if (!isRetry && configuration.status.isDefined && !configuration.status.get.isSuccessful) {
                 val e: Exception = configuration.status.get.e
                 logger.warn(s"Skipping configuration: ${configuration.toString} " +
                         s"with reason: ${e.getMessage}\n${e.getStackTraceString}")
@@ -96,7 +96,7 @@ object Main {
                 logger.info("All failed tables are successfully transferred due to VACUUM")
                 return
             } else {
-                run(sqlContext, failedConfigurations)
+                run(sqlContext, failedConfigurations, isRetry = true)
             }
             retryCnt -= 1
         }
@@ -118,7 +118,7 @@ object Main {
 
         logger.info("Total number of tables to transfer are : {}", configurations.length)
 
-        run(sqlContext, configurations)
+        run(sqlContext, configurations, isRetry = false)
         if (appParams.retryCount > 0 && Util.anyFailures(configurations)) {
             logger.info("Found failed transfers with retry count: {}", appParams.retryCount)
             rerun(sqlContext, configurations, retryCount = appParams.retryCount)

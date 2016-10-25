@@ -191,23 +191,22 @@ object mysqlSchemaExtractor {
                         case None =>
                             s"""INSERT into $redshiftTableName
                                 |SELECT * FROM $redshiftStagingTableName;""".stripMargin
-                        case Some(customSelect) => {
+                        case Some(customSelect) =>
                             val pattern = Pattern.compile("(?:AS|as)\\s*(\\w+)\\s*(?:,|$)")
                             val matcher = pattern.matcher(customSelect)
                             val customFields = scala.collection.mutable.ListBuffer.empty[String]
-                            while(matcher.find()) { 
-                                val matched = matcher.group(1); 
+                            while(matcher.find()) {
+                                val matched = matcher.group(1)
                                 customFields += matched
                                 logger.info("matched =>{}", matched)
                             }
-                            val tableColunms = tableDetails.validFields.map(_.fieldName).mkString(",")
+                            val tableColumns = tableDetails.validFields.map(_.fieldName).mkString(",")
                             val customFieldsStr = customFields.mkString(",")
-                            val customColumns = if(customFields.nonEmpty) s"( $tableColunms,$customFieldsStr )" else ""
+                            val customColumns = if(customFields.nonEmpty) s"( $tableColumns,$customFieldsStr )" else ""
                             logger.info("customColumns =>{}", customColumns)
                             s"""INSERT into $redshiftTableName $customColumns
                                 |SELECT *,$customSelect FROM $redshiftStagingTableName;""".stripMargin
-                        }
-                    })
+                    }) + "\n" + dropStagingTableString
         } else {
             ""
         }
