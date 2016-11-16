@@ -64,7 +64,6 @@ object Main {
                     val loadedTable: (DataFrame, TableDetails) = mysqlSchemaExtractor.loadToSpark(configuration.mysqlConf,
                         sqlContext, configuration.internalConfig)
                     if (loadedTable._1 != null) {
-                        logger.info("No data to ingest. Data frame is null!!!")
                         mysqlSchemaExtractor.storeToRedshift(loadedTable._1, loadedTable._2, configuration.redshiftConf,
                             configuration.s3Conf, sqlContext, configuration.internalConfig)
                     }

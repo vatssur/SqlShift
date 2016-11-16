@@ -82,6 +82,7 @@ package object mysqlRedshiftLoader {
     //reducePartitions => Parallelism is good for Redshift, Set this to >12, If this is same as the mapPartitions then
     //                      a reduce phase will be saved
     case class InternalConfig(shallSplit: Option[Boolean] = None,
+                              distKey:Option[String] = None,
                               shallOverwrite: Option[Boolean] = None,
                               incrementalSettings: Option[IncrementalSettings] = None,
                               mapPartitions: Int = 1,

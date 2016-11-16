@@ -29,7 +29,7 @@ object mysqlSchemaExtractor {
 
         logger.info("Loading table to Spark from MySQL")
         logger.info("MySQL details: \n{}", mysqlConfig.toString)
-        val tableDetails: TableDetails = getValidFieldNames(mysqlConfig)
+        val tableDetails: TableDetails = getValidFieldNames(mysqlConfig,internalConfig)
         logger.info("Table details: \n{}", tableDetails.toString)
 
         val partitionDetails: Option[Seq[String]] = internalConfig.shallSplit match {
@@ -53,7 +53,7 @@ object mysqlSchemaExtractor {
                                     logger.info("Found no where condition ")
                                     None
                             }
-                            val minMax: (Long, Long, Long) = Util.getMinMaxAndRows(mysqlConfig, whereCondition)
+                            val minMax: (Long, Long) = Util.getMinMax(mysqlConfig, whereCondition)
                             val nr: Long = minMax._2 - minMax._1 + 1
 
                             val mapPartitions = internalConfig.mapPartitions
@@ -71,7 +71,9 @@ object mysqlSchemaExtractor {
                             logger.warn(s"primary keys is non INT $typeOfPrimaryKey")
                             None
                         }
-                    case None => None
+                    case None =>
+                        logger.warn("No Distribution key found!!!")
+                        None
                 }
         }
 
@@ -135,8 +137,8 @@ object mysqlSchemaExtractor {
         val dropTableString = getDropCommand(redshiftConf)
         logger.info("dropTableString {}", dropTableString)
         val createTableString = getCreateTableString(tableDetails, redshiftConf)
-        val redshiftStagingConf = redshiftConf.copy(tableName = redshiftConf.tableName + stagingPrepend)
-        val createStagingTableString = getCreateTableString(tableDetails, redshiftStagingConf)
+        //val redshiftStagingConf = redshiftConf.copy(tableName = redshiftConf.tableName + stagingPrepend)
+        val createStagingTableString = getCreateTableString(tableDetails, redshiftConf, isStaging = true)
         logger.info("createTableString {}", createTableString)
         val shallOverwrite = internalConfig.shallOverwrite match {
             case None =>
@@ -277,9 +279,9 @@ object mysqlSchemaExtractor {
     //Use this method to get the columns to extract
     //Use sqoop 's --columns option to only request the valid columns
     //Use sqoop 's --map-column-java option to request for the fields that needs typeChange
-    def getValidFieldNames(mysqlConfig: DBConfiguration)(implicit crashOnInvalidType: Boolean): TableDetails = {
+    def getValidFieldNames(mysqlConfig: DBConfiguration, internalConfig: InternalConfig)(implicit crashOnInvalidType: Boolean): TableDetails = {
         val con = getConnection(mysqlConfig)
-        val tableDetails = getTableDetails(con, mysqlConfig)(crashOnInvalidType)
+        val tableDetails = getTableDetails(con, mysqlConfig, internalConfig)(crashOnInvalidType)
         con.close()
         tableDetails
     }
@@ -335,20 +337,35 @@ object mysqlSchemaExtractor {
         )
     }
 
-    def getDistStyleAndKey(con: Connection, setColumns: Set[String], conf: DBConfiguration): Option[String] = {
-        val meta = con.getMetaData
-        val resPrimaryKeys = meta.getPrimaryKeys(conf.db, null, conf.tableName)
-        var primaryKeys = scala.collection.immutable.Set[String]()
-        while (resPrimaryKeys.next) {
-            val columnName = resPrimaryKeys.getString(4)
-            if (setColumns.contains(columnName.toLowerCase)) {
-                primaryKeys = primaryKeys + columnName
-            } else {
-                System.err.println(s"Rejected $columnName")
-            }
+    def getDistStyleAndKey(con: Connection, setColumns: Set[String], conf: DBConfiguration, internalConfig:InternalConfig ): Option[String] = {
+        internalConfig.distKey match {
+            case Some(key) =>
+                logger.info("Found distKey in configuration {}", key)
+                Some(key)
+            case None =>
+                logger.info("Found no distKey in configuration")
+                val meta = con.getMetaData
+                val resPrimaryKeys = meta.getPrimaryKeys(conf.db, null, conf.tableName)
+                var primaryKeys = scala.collection.immutable.Set[String]()
+
+                while (resPrimaryKeys.next) {
+                    val columnName = resPrimaryKeys.getString(4)
+                    if (setColumns.contains(columnName.toLowerCase)) {
+                        primaryKeys = primaryKeys + columnName
+                    } else {
+                        logger.warn(s"Rejected $columnName")
+                    }
+                }
+
+                resPrimaryKeys.close()
+                if (primaryKeys.size != 1) {
+                    logger.error(s"Found multiple primary keys, Not taking any. ${primaryKeys.mkString(",")}")
+                    None
+                } else {
+                    logger.info(s"Found primary keys, distribution key is. ${primaryKeys.toSeq.head}")
+                    Some(primaryKeys.toSeq.head)
+                }
         }
-        resPrimaryKeys.close()
-        if (primaryKeys.size != 1) None else Some(primaryKeys.toSeq.head)
     }
 
     def getIndexes(con: Connection, setColumns: Set[String], conf: DBConfiguration) = {
@@ -386,7 +403,7 @@ object mysqlSchemaExtractor {
         result
     }
 
-    def getTableDetails(con: Connection, conf: DBConfiguration)
+    def getTableDetails(con: Connection, conf: DBConfiguration, internalConfig:InternalConfig)
                        (implicit crashOnInvalidType: Boolean): TableDetails = {
         val stmt = con.createStatement()
         val query = s"SELECT * from ${conf.db}.${conf.tableName} where 1 < 0"
@@ -423,7 +440,7 @@ object mysqlSchemaExtractor {
         rs.close()
         stmt.close()
         val sortKeys = getIndexes(con, setColumns, conf)
-        val distKey = getDistStyleAndKey(con, setColumns, conf)
+        val distKey = getDistStyleAndKey(con, setColumns, conf, internalConfig )
         TableDetails(validFields, invalidFields, sortKeys, distKey)
     }
 
@@ -432,20 +449,28 @@ object mysqlSchemaExtractor {
         else s"${rc.tableName}"
     }
 
-    def getCreateTableString(td: TableDetails, rc: DBConfiguration) = {
+    def getCreateTableString(td: TableDetails, rc: DBConfiguration, isStaging:Boolean = false) = {
         val tableNameWithSchema = getTableNameWithSchema(rc)
-        val fieldNames = td.validFields.map(r => s"""\t"${r.fieldName}" ${r.fieldType}""").mkString(",\n")
-        val distributionKey = td.distributionKey match {
-            case None => "DISTSTYLE EVEN"
-            case Some(key) => s"""DISTSTYLE KEY \nDISTKEY ( "$key" ) """
-        }
-        val sortKeys = if (td.sortKeys.nonEmpty) "INTERLEAVED SORTKEY ( \"" + td.sortKeys.mkString("\", \"") + "\" )" else ""
+        if(isStaging) {
+            val fieldNames = td.validFields.map(r => s"""\t"${r.fieldName}" """).mkString(",\n")
+            s"""
+              | CREATE TABLE ${tableNameWithSchema}_staging AS
+              | SELECT $fieldNames FROM $tableNameWithSchema WHERE 1 = 0
+            """.stripMargin
+        } else {
+            val fieldNames = td.validFields.map(r => s"""\t"${r.fieldName}" ${r.fieldType}""").mkString(",\n")
+            val distributionKey = td.distributionKey match {
+                case None => "DISTSTYLE EVEN"
+                case Some(key) => s"""DISTSTYLE KEY \nDISTKEY ( "$key" ) """
+            }
+            val sortKeys = if (td.sortKeys.nonEmpty) "INTERLEAVED SORTKEY ( \"" + td.sortKeys.mkString("\", \"") + "\" )" else ""
 
-        s"""CREATE TABLE IF NOT EXISTS $tableNameWithSchema (
-            |    $fieldNames
-            |)
-            |$distributionKey
-            |$sortKeys ;""".stripMargin
+            s"""CREATE TABLE IF NOT EXISTS $tableNameWithSchema (
+                |    $fieldNames
+                |)
+                |$distributionKey
+                |$sortKeys ;""".stripMargin
+        }
     }
 
     def getDropCommand(conf: DBConfiguration) = {

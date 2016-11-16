@@ -76,15 +76,15 @@ object Util {
       *
       * @param mysqlDBConf    mysql configuration
       * @param whereCondition filter condition(without where clause)
-      * @return tuple: (min, max, rows)
+      * @return tuple: (min, max)
       */
-    def getMinMaxAndRows(mysqlDBConf: DBConfiguration, whereCondition: Option[String] = None): (Long, Long, Long) = {
+    def getMinMax(mysqlDBConf: DBConfiguration, whereCondition: Option[String] = None): (Long, Long) = {
         val connection = mysqlSchemaExtractor.getConnection(mysqlDBConf)
         val keys: ResultSet = connection.getMetaData.getPrimaryKeys(mysqlDBConf.db, null, mysqlDBConf.tableName)
         keys.next()
         val primaryKey: String = keys.getString(4)
         logger.info("Primary key is: {}", primaryKey)
-        var query = s"SELECT min($primaryKey), max($primaryKey), count(*) " +
+        var query = s"SELECT min($primaryKey), max($primaryKey) " +
                 s"FROM ${mysqlDBConf.db}.${mysqlDBConf.tableName}"
         if (whereCondition.nonEmpty) {
             query += " WHERE " + whereCondition.get
@@ -94,10 +94,9 @@ object Util {
         result.next()
         val min: Long = result.getLong(1)
         val max: Long = result.getLong(2)
-        val rows: Long = result.getLong(3)
-        logger.info(s"Minimum $primaryKey: $min :: Maximum $primaryKey: $max :: Total number Of Rows: $rows")
+        logger.info(s"Minimum $primaryKey: $min :: Maximum $primaryKey: $max")
         connection.close()
-        (min, max, rows)
+        (min, max)
     }
 
     /**
@@ -111,7 +110,7 @@ object Util {
     def getPartitions(mysqlDBConf: DBConfiguration, whereCondition: Option[String] = None): Int = {
         val memory: Long = getExecutorMemory
         logger.info("Calculating number of partitions with each executor has memory: {}", memory)
-        val minMaxAndRows: (Long, Long, Long) = getMinMaxAndRows(mysqlDBConf, whereCondition)
+        val minMaxAndRows: (Long, Long) = getMinMax(mysqlDBConf, whereCondition)
         val minMaxDiff: Long = minMaxAndRows._2 - minMaxAndRows._1 + 1
         val avgRowSize: Long = getAvgRowSize(mysqlDBConf)
         if (avgRowSize == 0) {
@@ -171,6 +170,15 @@ object Util {
         }
         logger.info("Whether table is splittable: {}", isSplittable)
 
+        val distKeyValue = table \ "distkey"
+        val distKey: Option[String] = if (distKeyValue != JNothing && distKeyValue != JNull) {
+            logger.info("Found distribution key:- {}", distKeyValue.extract[String])
+            Some(distKeyValue.extract[String])
+        } else {
+            logger.info("No distribution key found in configuration")
+            None
+        }
+
         val partitionsValue = table \ "partitions"
         var partitions: Int = 1
         if (isSplittable) {
@@ -183,7 +191,7 @@ object Util {
 
         if (incrementalColumn == JNothing || incrementalColumn == JNull) {
             logger.info("Table is not incremental")
-            internalConfig = InternalConfig(shallSplit = Some(isSplittable), mapPartitions = partitions,
+            internalConfig = InternalConfig(shallSplit = Some(isSplittable), distKey = distKey, mapPartitions = partitions,
                 reducePartitions = partitions)
         } else {
             val whereCondition: String = incrementalColumn.extract[String]
@@ -207,7 +215,7 @@ object Util {
                 customSelectFromStaging = addColumn)
 
             val settings: Some[IncrementalSettings] = Some(incrementalSettings)
-            internalConfig = InternalConfig(shallSplit = Some(isSplittable), incrementalSettings = settings,
+            internalConfig = InternalConfig(shallSplit = Some(isSplittable), distKey = distKey, incrementalSettings = settings,
                 mapPartitions = partitions, reducePartitions = partitions)
         }
         AppConfiguration(mysqlConf, redshiftConf, s3Conf, internalConfig)
