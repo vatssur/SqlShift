@@ -85,8 +85,8 @@ package object mysqlRedshiftLoader {
                               distKey:Option[String] = None,
                               shallOverwrite: Option[Boolean] = None,
                               incrementalSettings: Option[IncrementalSettings] = None,
-                              mapPartitions: Int = 1,
-                              reducePartitions: Int = 1)
+                              mapPartitions: Option[Int] = None,
+                              reducePartitions: Option[Int] = None)
 
     case class AppParams(tableDetailsPath: String,
                          mailDetailsPath: String,

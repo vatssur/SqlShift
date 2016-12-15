@@ -53,10 +53,14 @@ object mysqlSchemaExtractor {
                                     logger.info("Found no where condition ")
                                     None
                             }
-                            val minMax: (Long, Long) = Util.getMinMax(mysqlConfig, whereCondition)
+
+                            val minMax: (Long, Long) = Util.getMinMax(mysqlConfig, primaryKey, whereCondition)
                             val nr: Long = minMax._2 - minMax._1 + 1
 
-                            val mapPartitions = internalConfig.mapPartitions
+                            val mapPartitions = internalConfig.mapPartitions match {
+                                case Some(partitions) => partitions
+                                case None             => Util.getPartitions(sqlContext,mysqlConfig ,minMax)
+                            }
                             if (mapPartitions == 0) {
                                 return (null, null)
                             }
@@ -224,23 +228,24 @@ object mysqlSchemaExtractor {
         else redshiftTableName
 
         logger.info("redshiftTableNameForIngestion: {}", redshiftTableNameForIngestion)
-
-        val redshiftWriter = {
-            if (df.rdd.getNumPartitions == internalConfig.reducePartitions) df
-            else {
-                logger.info("Repartitioning the data frame...")
-                df.repartition(internalConfig.reducePartitions)
+        val redshiftWriterPartitioned = internalConfig.reducePartitions match {
+            case Some(reducePartitions) => {
+                if (df.rdd.getNumPartitions == reducePartitions) df.repartition(reducePartitions) 
+                else df
             }
-        }.write.
-                format("com.databricks.spark.redshift").
-                option("url", getJdbcUrl(redshiftConf)).
-                option("user", redshiftConf.userName).
-                option("password", redshiftConf.password).
-                option("jdbcdriver", "com.amazon.redshift.jdbc4.Driver").
-                option("dbtable", redshiftTableNameForIngestion).
-                option("tempdir", s3Conf.s3Location).
-                option("extracopyoptions", "TRUNCATECOLUMNS").
-                mode(redshiftWriteMode)
+            case None => df
+        }
+
+        val redshiftWriter = redshiftWriterPartitioned.write.
+            format("com.databricks.spark.redshift").
+            option("url", getJdbcUrl(redshiftConf)).
+            option("user", redshiftConf.userName).
+            option("password", redshiftConf.password).
+            option("jdbcdriver", "com.amazon.redshift.jdbc4.Driver").
+            option("dbtable", redshiftTableNameForIngestion).
+            option("tempdir", s3Conf.s3Location).
+            option("extracopyoptions", "TRUNCATECOLUMNS").
+            mode(redshiftWriteMode)
 
         val redshiftWriterWithPreactions = {
             if (preActions != "") redshiftWriter.option("preactions", preActions)

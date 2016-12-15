@@ -9,6 +9,7 @@ import org.apache.spark.{SparkConf, SparkContext}
 import org.json4s.native.JsonMethods._
 import org.json4s.{DefaultFormats, _}
 import org.slf4j.{Logger, LoggerFactory}
+import scala.util.{Try, Success, Failure}
 
 /**
   * Project: mysql-redshift-loader
@@ -27,30 +28,15 @@ object Util {
       *
       * @return Executor memory
       */
-    def getExecutorMemory: Long = {
-        val executorMemoryAsString: String = System.getProperty("spark.executor.memory")
-        var executorMemory = 512 * MB
-        try {
-            if (executorMemoryAsString != null) {
-                logger.info("Executor Memory: {}", executorMemoryAsString)
-                val len: Int = executorMemoryAsString.length
-                val memChar: Char = executorMemoryAsString.charAt(len - 1)
-                if (memChar.toLower == 'k') {
-                    executorMemory = executorMemoryAsString.substring(0, len - 1).toLong * KB
-                } else if (memChar.toLower == 'm') {
-                    executorMemory = executorMemoryAsString.substring(0, len - 1).toLong * MB
-                } else if (memChar.toLower == 'g') {
-                    executorMemory = executorMemoryAsString.substring(0, len - 1).toLong * GB
-                } else {
-                    executorMemory = executorMemoryAsString.toLong
-                }
-            }
-        } catch {
-            case e: Exception => logger.warn("Wrong format of executor memory")
-                logger.info("Taking default executor memory: {}", executorMemory)
+    //TODO: Replace this function with conf.getSizeAsBytes("spark.executor.memory")
+    def getExecutorMemory(conf:SparkConf): Long = {
+        val defaultExecutorMemorySize = 512 * MB
+        val executorMemorySize  = Try { conf.getSizeAsBytes("spark.executor.memory") }.getOrElse {
+            logger.warn("Wrong format of executor memory, Taking default {}", defaultExecutorMemorySize)
+            defaultExecutorMemorySize
         }
-        logger.info("Executor memory in bytes: {}", executorMemory)
-        executorMemory
+        logger.info("executorMemorySize = {}", executorMemorySize)
+        return executorMemorySize
     }
 
     /**
@@ -67,9 +53,12 @@ object Util {
         val result: ResultSet = connection.createStatement().executeQuery(query)
         result.next()
         val avgRowSize: Long = result.getLong(1)
+        result.close()
         connection.close()
         avgRowSize
     }
+
+
 
     /**
       * Get minimum, maximum of primary key if primary key is integer and total records with given where condition
@@ -78,13 +67,10 @@ object Util {
       * @param whereCondition filter condition(without where clause)
       * @return tuple: (min, max)
       */
-    def getMinMax(mysqlDBConf: DBConfiguration, whereCondition: Option[String] = None): (Long, Long) = {
+    def getMinMax(mysqlDBConf: DBConfiguration, distKey:String, whereCondition: Option[String] = None): (Long, Long) = {
         val connection = mysqlSchemaExtractor.getConnection(mysqlDBConf)
-        val keys: ResultSet = connection.getMetaData.getPrimaryKeys(mysqlDBConf.db, null, mysqlDBConf.tableName)
-        keys.next()
-        val primaryKey: String = keys.getString(4)
-        logger.info("Primary key is: {}", primaryKey)
-        var query = s"SELECT min($primaryKey), max($primaryKey) " +
+
+        var query = s"SELECT min($distKey), max($distKey) " +
                 s"FROM ${mysqlDBConf.db}.${mysqlDBConf.tableName}"
         if (whereCondition.nonEmpty) {
             query += " WHERE " + whereCondition.get
@@ -94,9 +80,10 @@ object Util {
         result.next()
         val min: Long = result.getLong(1)
         val max: Long = result.getLong(2)
-        logger.info(s"Minimum $primaryKey: $min :: Maximum $primaryKey: $max")
+        logger.info(s"Minimum $distKey: $min :: Maximum $distKey: $max")
+        result.close()
         connection.close()
-        (min, max)
+        return (min, max)
     }
 
     /**
@@ -107,10 +94,9 @@ object Util {
       * @param whereCondition filter condition(without where clause)
       * @return no of partitions
       */
-    def getPartitions(mysqlDBConf: DBConfiguration, whereCondition: Option[String] = None): Int = {
-        val memory: Long = getExecutorMemory
+    def getPartitions(sqlContext:SQLContext, mysqlDBConf: DBConfiguration, minMaxAndRows:(Long,Long)): Int = {
+        val memory: Long = getExecutorMemory(sqlContext.sparkContext.getConf)
         logger.info("Calculating number of partitions with each executor has memory: {}", memory)
-        val minMaxAndRows: (Long, Long) = getMinMax(mysqlDBConf, whereCondition)
         val minMaxDiff: Long = minMaxAndRows._2 - minMaxAndRows._1 + 1
         val avgRowSize: Long = getAvgRowSize(mysqlDBConf)
         if (avgRowSize == 0) {
@@ -180,12 +166,11 @@ object Util {
         }
 
         val partitionsValue = table \ "partitions"
-        var partitions: Int = 1
-        if (isSplittable) {
-            partitions = if (partitionsValue == JNothing || partitionsValue == JNull)
-                Util.getPartitions(mysqlConf)
-            else
-                partitionsValue.extract[Int]
+        var partitions: Option[Int] = {
+            if (isSplittable && partitionsValue != JNothing && partitionsValue != JNull) 
+                Some(partitionsValue.extract[Int])
+            else 
+                None
         }
         logger.info("Number of partitions: {}", partitions)
 

@@ -27,7 +27,6 @@ libraryDependencies ++= Seq(
     "com.github.scopt" %% "scopt" % "3.5.0",
     "org.json4s" %% "json4s-native" % "3.4.1",
     "org.json4s" %% "json4s-jackson" % "3.4.1",
-    "org.slf4j" % "slf4j-api" % "1.7.21",
     "org.slf4j" % "slf4j-simple" % "1.7.21",
     "javax.mail" % "mail" % "1.4.7"
 )
