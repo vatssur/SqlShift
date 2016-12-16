@@ -122,6 +122,7 @@ object Main {
             logger.info("Found failed transfers with retry count: {}", appParams.retryCount)
             rerun(sqlContext, configurations, retryCount = appParams.retryCount)
         }
+        sqlContext.sparkContext.stop
         if (appParams.mailDetailsPath == null) {
             logger.info("Mail details properties file is not provided!!!")
             logger.info("Disabling alerting")
