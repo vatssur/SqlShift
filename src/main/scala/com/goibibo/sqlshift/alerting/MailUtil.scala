@@ -1,14 +1,14 @@
 /**
   * Created by rama on 13/10/16.
   */
-package com.goibibo.mysqlRedshiftLoader.alerting
+package com.goibibo.sqlshift.alerting
 
 import java.util.Properties
 import javax.mail.Message.RecipientType
 import javax.mail.internet.{InternetAddress, MimeMessage, _}
 import javax.mail.{Session, Transport}
 
-import com.goibibo.mysqlRedshiftLoader._
+import com.goibibo.sqlshift._
 import org.slf4j.{Logger, LoggerFactory}
 
 class MailUtil(mailParams: MailParams) {
@@ -21,11 +21,11 @@ class MailUtil(mailParams: MailParams) {
     /** Send email message.
       *
       * @param appConfs From
-      *            // @param tos Recipients
-      *            // @param ccs CC Recipients
-      *            // @param subject Subject
-      *            //@param text Text
-      *            //@throws MessagingException
+      *                 // @param tos Recipients
+      *                 // @param ccs CC Recipients
+      *                 // @param subject Subject
+      *                 //@param text Text
+      *                 //@throws MessagingException
       */
     def send(appConfs: List[AppConfiguration]): Unit = {
         val from = "noreply_etl@ibibogroup.com"
@@ -35,10 +35,11 @@ class MailUtil(mailParams: MailParams) {
                 "</th><th size=6>Mysql table_name </th><th size=6>Redshift schema</th><th size=6>Status</th><th size=6>" +
                 "Error</th></tr>"
 
-
+        logger.info(s"Mail to: '${mailParams.to}' and cc: '${mailParams.cc}'")
         val tos: List[String] = mailParams.to.split(",").toList
-        val ccs: List[String] = mailParams.cc.split(",").toList
-        logger.info(s"Mail to: ${mailParams.to} and cc: ${mailParams.cc}")
+        var ccs: List[String] = List()
+        if (mailParams.cc != "")
+            ccs = mailParams.cc.split(",").toList
 
         var errorCnt = 0
         var successCnt = 0
@@ -57,10 +58,7 @@ class MailUtil(mailParams: MailParams) {
             }
         }
 
-        subject += " Success " + successCnt.toString + " Failed " + errorCnt.toString
-
-        if(mailParams.subject != null)
-            subject += mailParams.subject
+        subject += " Success " + successCnt.toString + " Failed " + errorCnt.toString + mailParams.subject
 
         text += "</table></body></html>"
         logger.info("Subject: {}", subject)

@@ -153,7 +153,7 @@ alert.cc =
 Submitting spark job on yarn :-
 ```
 spark-submit \
---class com.goibibo.mysqlRedshiftLoader.Main \
+--class com.goibibo.sqlshift.Main \
 --master yarn \
 --packages "org.apache.hadoop:hadoop-aws:2.7.2,com.databricks:spark-redshift_2.10:1.1.0,com.amazonaws:aws-java-sdk:1.7.4,mysql:mysql-connector-java:5.1.39" \
 --jars="RedshiftJDBC4-1.1.17.1017.jar,mysql-redshift-loader_2.10-0.1.jar"  \
