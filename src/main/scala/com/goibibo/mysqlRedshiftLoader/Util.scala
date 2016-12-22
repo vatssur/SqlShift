@@ -49,7 +49,7 @@ object Util {
         logger.info("Calculating average row size: {}", mysqlDBConf.toString)
         val query = s"SELECT avg_row_length FROM information_schema.tables WHERE table_schema = " +
                 s"'${mysqlDBConf.db}' AND table_name = '${mysqlDBConf.tableName}'"
-        val connection = mysqlSchemaExtractor.getConnection(mysqlDBConf)
+        val connection = MySqlSchemaExtractor.getConnection(mysqlDBConf)
         val result: ResultSet = connection.createStatement().executeQuery(query)
         result.next()
         val avgRowSize: Long = result.getLong(1)
@@ -68,7 +68,7 @@ object Util {
       * @return tuple: (min, max)
       */
     def getMinMax(mysqlDBConf: DBConfiguration, distKey:String, whereCondition: Option[String] = None): (Long, Long) = {
-        val connection = mysqlSchemaExtractor.getConnection(mysqlDBConf)
+        val connection = MySqlSchemaExtractor.getConnection(mysqlDBConf)
 
         var query = s"SELECT min($distKey), max($distKey) " +
                 s"FROM ${mysqlDBConf.db}.${mysqlDBConf.tableName}"

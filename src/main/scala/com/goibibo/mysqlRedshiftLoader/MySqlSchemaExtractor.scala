@@ -13,8 +13,8 @@ import java.util.regex._
 --jars=<Some-location>/RedshiftJDBC4-1.1.17.1017.jar
 */
 
-object mysqlSchemaExtractor {
-    private val logger: Logger = LoggerFactory.getLogger(mysqlSchemaExtractor.getClass)
+object MySqlSchemaExtractor {
+    private val logger: Logger = LoggerFactory.getLogger(MySqlSchemaExtractor.getClass)
 
     /**
       * Load table in spark.
