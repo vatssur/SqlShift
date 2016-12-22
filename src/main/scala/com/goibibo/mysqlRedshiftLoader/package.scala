@@ -96,7 +96,8 @@ package object mysqlRedshiftLoader {
     case class MailParams(host: String,
                           password: String,
                           to: String,
-                          cc: String
+                          cc: String,
+                          subject: String
                          )
 
     case class Status(isSuccessful: Boolean, e: Exception)

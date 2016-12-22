@@ -61,10 +61,10 @@ object Main {
                     val mySqlTableName = s"${configuration.mysqlConf.db}.${configuration.mysqlConf.tableName}"
                     val redshiftTableName = s"${configuration.redshiftConf.schema}.${configuration.mysqlConf.tableName}"
                     sqlContext.sparkContext.setJobDescription(s"$mySqlTableName => $redshiftTableName")
-                    val loadedTable: (DataFrame, TableDetails) = mysqlSchemaExtractor.loadToSpark(configuration.mysqlConf,
+                    val loadedTable: (DataFrame, TableDetails) = MySqlSchemaExtractor.loadToSpark(configuration.mysqlConf,
                         sqlContext, configuration.internalConfig)
                     if (loadedTable._1 != null) {
-                        mysqlSchemaExtractor.storeToRedshift(loadedTable._1, loadedTable._2, configuration.redshiftConf,
+                        MySqlSchemaExtractor.storeToRedshift(loadedTable._1, loadedTable._2, configuration.redshiftConf,
                             configuration.s3Conf, sqlContext, configuration.internalConfig)
                     }
                     logger.info("Successful transfer for configuration\n{}", configuration.toString)
@@ -129,8 +129,11 @@ object Main {
             logger.info("Alerting developers....")
             val prop: Properties = new Properties()
             prop.load(new File(appParams.mailDetailsPath).toURI.toURL.openStream())
-            val mailParams: MailParams = MailParams(prop.getProperty("alert.host"), null,
-                prop.getProperty("alert.to"), prop.getProperty("alert.cc"))
+            val mailParams: MailParams = MailParams(prop.getProperty("alert.host"),
+                null,
+                prop.getProperty("alert.to"),
+                prop.getProperty("alert.cc"),
+                prop.getProperty("alert.subject"))
             new MailUtil(mailParams).send(configurations.toList)
         }
         logger.info("Info Section: \n{}", Util.formattedInfoSection(configurations))

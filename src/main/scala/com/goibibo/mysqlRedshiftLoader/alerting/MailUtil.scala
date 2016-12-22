@@ -20,14 +20,14 @@ class MailUtil(mailParams: MailParams) {
 
     /** Send email message.
       *
-      * @param obj From
+      * @param appConfs From
       *            // @param tos Recipients
       *            // @param ccs CC Recipients
       *            // @param subject Subject
       *            //@param text Text
       *            //@throws MessagingException
       */
-    def send(obj: List[AppConfiguration]): Unit = {
+    def send(appConfs: List[AppConfiguration]): Unit = {
         val from = "noreply_etl@ibibogroup.com"
         logger.info("Mail from: {}", from)
         var subject = "Mysql to Redshift Load info"
@@ -42,22 +42,26 @@ class MailUtil(mailParams: MailParams) {
 
         var errorCnt = 0
         var successCnt = 0
-        for (i <- obj) {
+        for (appConf <- appConfs) {
 
-            text += "<tr><td bgcolor='#FFE4C4'>" + i.mysqlConf.db + "</td><td bgcolor='#E0FFFF'>" +
-                    i.mysqlConf.tableName + "</td><td bgcolor='#F5F5DC'>" + i.redshiftConf.schema +
-                    "</td><td bgcolor='#E0FFFF'>" + i.status.get.isSuccessful + "</td><td bgcolor='#F0FFFF'>"
+            text += "<tr><td bgcolor='#FFE4C4'>" + appConf.mysqlConf.db + "</td><td bgcolor='#E0FFFF'>" +
+                    appConf.mysqlConf.tableName + "</td><td bgcolor='#F5F5DC'>" + appConf.redshiftConf.schema +
+                    "</td><td bgcolor='#E0FFFF'>" + appConf.status.get.isSuccessful + "</td><td bgcolor='#F0FFFF'>"
 
-            if (i.status.get.isSuccessful) {
+            if (appConf.status.get.isSuccessful) {
                 successCnt += 1
             }
             else {
-                text += "%s\n%s</td></tr>".format(i.status.get.e.getMessage, i.status.get.e.getStackTraceString)
+                text += "%s\n%s</td></tr>".format(appConf.status.get.e.getMessage, appConf.status.get.e.getStackTraceString)
                 errorCnt += 1
             }
         }
 
         subject += " Success " + successCnt.toString + " Failed " + errorCnt.toString
+
+        if(mailParams.subject != null)
+            subject += mailParams.subject
+
         text += "</table></body></html>"
         logger.info("Subject: {}", subject)
 
