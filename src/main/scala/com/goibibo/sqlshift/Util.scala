@@ -1,15 +1,16 @@
-package com.goibibo.mysqlRedshiftLoader
+package com.goibibo.sqlshift
 
 import java.io.{File, InputStream}
 import java.sql.ResultSet
 
-import com.goibibo.mysqlRedshiftLoader
+import com.goibibo.sqlshift
 import org.apache.spark.sql.SQLContext
 import org.apache.spark.{SparkConf, SparkContext}
 import org.json4s.native.JsonMethods._
 import org.json4s.{DefaultFormats, _}
 import org.slf4j.{Logger, LoggerFactory}
-import scala.util.{Try, Success, Failure}
+
+import scala.util.Try
 
 /**
   * Project: mysql-redshift-loader
@@ -29,9 +30,11 @@ object Util {
       * @return Executor memory
       */
     //TODO: Replace this function with conf.getSizeAsBytes("spark.executor.memory")
-    def getExecutorMemory(conf:SparkConf): Long = {
+    def getExecutorMemory(conf: SparkConf): Long = {
         val defaultExecutorMemorySize = 512 * MB
-        val executorMemorySize  = Try { conf.getSizeAsBytes("spark.executor.memory") }.getOrElse {
+        val executorMemorySize = Try {
+            conf.getSizeAsBytes("spark.executor.memory")
+        }.getOrElse {
             logger.warn("Wrong format of executor memory, Taking default {}", defaultExecutorMemorySize)
             defaultExecutorMemorySize
         }
@@ -49,7 +52,7 @@ object Util {
         logger.info("Calculating average row size: {}", mysqlDBConf.toString)
         val query = s"SELECT avg_row_length FROM information_schema.tables WHERE table_schema = " +
                 s"'${mysqlDBConf.db}' AND table_name = '${mysqlDBConf.tableName}'"
-        val connection = MySqlSchemaExtractor.getConnection(mysqlDBConf)
+        val connection = RedshiftUtil.getConnection(mysqlDBConf)
         val result: ResultSet = connection.createStatement().executeQuery(query)
         result.next()
         val avgRowSize: Long = result.getLong(1)
@@ -59,7 +62,6 @@ object Util {
     }
 
 
-
     /**
       * Get minimum, maximum of primary key if primary key is integer and total records with given where condition
       *
@@ -67,8 +69,8 @@ object Util {
       * @param whereCondition filter condition(without where clause)
       * @return tuple: (min, max)
       */
-    def getMinMax(mysqlDBConf: DBConfiguration, distKey:String, whereCondition: Option[String] = None): (Long, Long) = {
-        val connection = MySqlSchemaExtractor.getConnection(mysqlDBConf)
+    def getMinMax(mysqlDBConf: DBConfiguration, distKey: String, whereCondition: Option[String] = None): (Long, Long) = {
+        val connection = RedshiftUtil.getConnection(mysqlDBConf)
 
         var query = s"SELECT min($distKey), max($distKey) " +
                 s"FROM ${mysqlDBConf.db}.${mysqlDBConf.tableName}"
@@ -94,7 +96,7 @@ object Util {
       * @param whereCondition filter condition(without where clause)
       * @return no of partitions
       */
-    def getPartitions(sqlContext:SQLContext, mysqlDBConf: DBConfiguration, minMaxAndRows:(Long,Long)): Int = {
+    def getPartitions(sqlContext: SQLContext, mysqlDBConf: DBConfiguration, minMaxAndRows: (Long, Long)): Int = {
         val memory: Long = getExecutorMemory(sqlContext.sparkContext.getConf)
         logger.info("Calculating number of partitions with each executor has memory: {}", memory)
         val minMaxDiff: Long = minMaxAndRows._2 - minMaxAndRows._1 + 1
@@ -123,7 +125,7 @@ object Util {
     }
 
     private def getDBsConf(mysqlJson: JValue, redshiftJson: JValue, s3Json: JValue, table: JValue):
-    (mysqlRedshiftLoader.DBConfiguration, mysqlRedshiftLoader.DBConfiguration, mysqlRedshiftLoader.S3Config) = {
+    (sqlshift.DBConfiguration, sqlshift.DBConfiguration, sqlshift.S3Config) = {
         implicit val formats = DefaultFormats
 
         val mysqlConf: DBConfiguration = DBConfiguration("mysql", (mysqlJson \ "db").extract[String], null,
@@ -167,9 +169,9 @@ object Util {
 
         val partitionsValue = table \ "partitions"
         var partitions: Option[Int] = {
-            if (isSplittable && partitionsValue != JNothing && partitionsValue != JNull) 
+            if (isSplittable && partitionsValue != JNothing && partitionsValue != JNull)
                 Some(partitionsValue.extract[Int])
-            else 
+            else
                 None
         }
         logger.info("Number of partitions: {}", partitions)

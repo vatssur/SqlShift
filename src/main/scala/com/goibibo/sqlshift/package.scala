@@ -1,6 +1,6 @@
 package com.goibibo
 
-package object mysqlRedshiftLoader {
+package object sqlshift {
 
     case class DBConfiguration(database: String,
                                db: String,

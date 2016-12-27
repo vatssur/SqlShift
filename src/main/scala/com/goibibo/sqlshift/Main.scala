@@ -1,9 +1,9 @@
-package com.goibibo.mysqlRedshiftLoader
+package com.goibibo.sqlshift
 
 import java.io.File
 import java.util.Properties
 
-import com.goibibo.mysqlRedshiftLoader.alerting.MailUtil
+import com.goibibo.sqlshift.alerting.MailUtil
 import org.apache.spark.sql.{DataFrame, SQLContext}
 import org.slf4j.{Logger, LoggerFactory}
 import scopt.OptionParser
@@ -61,10 +61,10 @@ object Main {
                     val mySqlTableName = s"${configuration.mysqlConf.db}.${configuration.mysqlConf.tableName}"
                     val redshiftTableName = s"${configuration.redshiftConf.schema}.${configuration.mysqlConf.tableName}"
                     sqlContext.sparkContext.setJobDescription(s"$mySqlTableName => $redshiftTableName")
-                    val loadedTable: (DataFrame, TableDetails) = MySqlSchemaExtractor.loadToSpark(configuration.mysqlConf,
+                    val loadedTable: (DataFrame, TableDetails) = MySQLToRedshiftMigrator.loadToSpark(configuration.mysqlConf,
                         sqlContext, configuration.internalConfig)
                     if (loadedTable._1 != null) {
-                        MySqlSchemaExtractor.storeToRedshift(loadedTable._1, loadedTable._2, configuration.redshiftConf,
+                        MySQLToRedshiftMigrator.storeToRedshift(loadedTable._1, loadedTable._2, configuration.redshiftConf,
                             configuration.s3Conf, sqlContext, configuration.internalConfig)
                     }
                     logger.info("Successful transfer for configuration\n{}", configuration.toString)
@@ -132,9 +132,9 @@ object Main {
             prop.load(new File(appParams.mailDetailsPath).toURI.toURL.openStream())
             val mailParams: MailParams = MailParams(prop.getProperty("alert.host"),
                 null,
-                prop.getProperty("alert.to"),
-                prop.getProperty("alert.cc"),
-                prop.getProperty("alert.subject"))
+                prop.getProperty("alert.to", ""),
+                prop.getProperty("alert.cc", ""),
+                prop.getProperty("alert.subject", ""))
             new MailUtil(mailParams).send(configurations.toList)
         }
         logger.info("Info Section: \n{}", Util.formattedInfoSection(configurations))
