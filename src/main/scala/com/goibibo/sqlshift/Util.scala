@@ -39,7 +39,7 @@ object Util {
             defaultExecutorMemorySize
         }
         logger.info("executorMemorySize = {}", executorMemorySize)
-        return executorMemorySize
+        executorMemorySize
     }
 
     /**
@@ -72,8 +72,7 @@ object Util {
     def getMinMax(mysqlDBConf: DBConfiguration, distKey: String, whereCondition: Option[String] = None): (Long, Long) = {
         val connection = RedshiftUtil.getConnection(mysqlDBConf)
 
-        var query = s"SELECT min($distKey), max($distKey) " +
-                s"FROM ${mysqlDBConf.db}.${mysqlDBConf.tableName}"
+        var query = s"SELECT min($distKey), max($distKey) FROM ${mysqlDBConf.db}.${mysqlDBConf.tableName}"
         if (whereCondition.nonEmpty) {
             query += " WHERE " + whereCondition.get
         }
@@ -85,15 +84,14 @@ object Util {
         logger.info(s"Minimum $distKey: $min :: Maximum $distKey: $max")
         result.close()
         connection.close()
-        return (min, max)
+        (min, max)
     }
 
     /**
       * Get optimum number of partitions on the basis of auto incremental and executor size.
       * If fails then return 1
       *
-      * @param mysqlDBConf    mysql configuration
-      * @param whereCondition filter condition(without where clause)
+      * @param mysqlDBConf mysql configuration
       * @return no of partitions
       */
     def getPartitions(sqlContext: SQLContext, mysqlDBConf: DBConfiguration, minMaxAndRows: (Long, Long)): Int = {
@@ -122,6 +120,10 @@ object Util {
         System.setProperty("com.amazonaws.services.s3.enableV4", "true")
         sc.hadoopConfiguration.set("fs.s3a.endpoint", "s3.ap-south-1.amazonaws.com")
         (sc, sqlContext)
+    }
+
+    def closeSparkContext(sparkContext: SparkContext): Unit = {
+        sparkContext.stop()
     }
 
     private def getDBsConf(mysqlJson: JValue, redshiftJson: JValue, s3Json: JValue, table: JValue):

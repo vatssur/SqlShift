@@ -1,6 +1,6 @@
 package com.goibibo.sqlshift
 
-import java.sql.{Connection, DriverManager}
+import java.sql.{Connection, DriverManager, ResultSet}
 import java.util.Properties
 
 import org.apache.spark.sql.{DataFrameReader, SQLContext}
@@ -36,6 +36,27 @@ object RedshiftUtil {
         Class.forName("com.mysql.jdbc.Driver")
         Class.forName("com.amazon.redshift.jdbc4.Driver")
         DriverManager.getConnection(connectionString, connectionProps)
+    }
+
+    /**
+      * Get all column names and data types from redshift
+      *
+      * @param dbConf redshift configuration
+      * @return
+      */
+    def getColumnNamesAndTypes(dbConf: DBConfiguration): Map[String, String] = {
+        logger.info("Getting all column names for {}", dbConf.toString)
+        val query = s"SELECT * FROM ${dbConf.schema}.${dbConf.tableName} WHERE 1 < 0;"
+        val connection = RedshiftUtil.getConnection(dbConf)
+        val result: ResultSet = connection.createStatement().executeQuery(query)
+        val resultSetMetaData = result.getMetaData
+        val count = resultSetMetaData.getColumnCount
+
+        val columnMap = (1 to count).foldLeft(Map[String, String]()) { (set, i) =>
+
+            set + (resultSetMetaData.getColumnName(i) -> resultSetMetaData.getColumnTypeName(i))
+        }
+        columnMap
     }
 
     def getVacuumString(shallVacuumAfterLoad: Boolean, redshiftConf: DBConfiguration): String = {
@@ -253,6 +274,24 @@ object RedshiftUtil {
             "YEAR" -> RedshiftType("INT")
         )
     }
+
+    val scalaToRedshiftTypeConverter: Map[String, String] = Map(
+        "INTEGER" -> "INT4",
+        "SHORT" -> "INT4",
+        "LONG" -> "INT4",
+        "BYTE" -> "INT2",
+        "STRING" -> "VARCHAR",
+        "CHAR" -> "VARCHAR(4)",
+        "FLOAT" -> "FLOAT4",
+        "DOUBLE" -> "FLOAT8",
+        "DECIMAL" -> "DECIMAL",
+        "BOOLEAN" -> "BOOLEAN",
+        "DATE" -> "DATE",
+        "TIME" -> "VARCHAR(11)",
+        "DATETIME" -> "TIMESTAMP",
+        "TIMESTAMP" -> "TIMESTAMP",
+        "YEAR" -> "INT"
+    )
 
     def getDataFrameReader(mysqlConfig: DBConfiguration, sqlQuery: String, sqlContext: SQLContext): DataFrameReader = {
         sqlContext.read.format("jdbc").
