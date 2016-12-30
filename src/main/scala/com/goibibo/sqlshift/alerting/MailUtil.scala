@@ -8,7 +8,8 @@ import javax.mail.Message.RecipientType
 import javax.mail.internet.{InternetAddress, MimeMessage, _}
 import javax.mail.{Session, Transport}
 
-import com.goibibo.sqlshift._
+import com.goibibo.sqlshift.models.Configurations.AppConfiguration
+import com.goibibo.sqlshift.models.Params.MailParams
 import org.slf4j.{Logger, LoggerFactory}
 
 class MailUtil(mailParams: MailParams) {
@@ -30,7 +31,7 @@ class MailUtil(mailParams: MailParams) {
     def send(appConfs: List[AppConfiguration]): Unit = {
         val from = "noreply_etl@ibibogroup.com"
         logger.info("Mail from: {}", from)
-        var subject = "Mysql to Redshift Load info"
+        var subject = "SQLShift:"
         var text = "<html><body><table border='1' style='width:100%' bgcolor='#F5F5F5'><tr> <th size=6>Mysql schema" +
                 "</th><th size=6>Mysql table_name </th><th size=6>Redshift schema</th><th size=6>Status</th><th size=6>" +
                 "Error</th></tr>"
@@ -58,7 +59,7 @@ class MailUtil(mailParams: MailParams) {
             }
         }
 
-        subject += " Success " + successCnt.toString + " Failed " + errorCnt.toString + mailParams.subject
+        subject += " Failed " + errorCnt.toString + " Success " + successCnt.toString + mailParams.subject
 
         text += "</table></body></html>"
         logger.info("Subject: {}", subject)

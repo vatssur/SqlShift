@@ -1,6 +1,6 @@
-# mysql-redshift-loader
+# SQL Shift(MySQL To Redshift Data Transfer)
 
-This program will transfer tables from MySQL to Redshift.
+This program will transfer tables from MySQL like databases to Redshift.
 
 ## Usage
 
@@ -148,14 +148,14 @@ Mail configuration for alerting :-
 alert.host =
 alert.to =
 alert.cc =
+alert.subject =
 ```
 
 Submitting spark job on yarn :-
 ```
 spark-submit \
---class com.goibibo.sqlshift.Main \
+--class com.goibibo.sqlshift.SQLShift \
 --master yarn \
---packages "org.apache.hadoop:hadoop-aws:2.7.2,com.databricks:spark-redshift_2.10:1.1.0,com.amazonaws:aws-java-sdk:1.7.4,mysql:mysql-connector-java:5.1.39" \
 --jars="RedshiftJDBC4-1.1.17.1017.jar,mysql-redshift-loader_2.10-0.1.jar"  \
 mysql-redshift-loader-assembly-0.1.jar -td table-details.json -mail mail.conf
 ```

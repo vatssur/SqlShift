@@ -1,9 +1,11 @@
-package com.goibibo.sqlshift
+package com.goibibo.sqlshift.commons
 
 import java.io.{File, InputStream}
 import java.sql.ResultSet
 
-import com.goibibo.sqlshift
+import com.goibibo.sqlshift.models.Configurations.{AppConfiguration, DBConfiguration, S3Config}
+import com.goibibo.sqlshift.models.InternalConfs.{IncrementalSettings, InternalConfig}
+import com.goibibo.sqlshift.models._
 import org.apache.spark.sql.SQLContext
 import org.apache.spark.{SparkConf, SparkContext}
 import org.json4s.native.JsonMethods._
@@ -127,7 +129,7 @@ object Util {
     }
 
     private def getDBsConf(mysqlJson: JValue, redshiftJson: JValue, s3Json: JValue, table: JValue):
-    (sqlshift.DBConfiguration, sqlshift.DBConfiguration, sqlshift.S3Config) = {
+    (DBConfiguration, DBConfiguration, S3Config) = {
         implicit val formats = DefaultFormats
 
         val mysqlConf: DBConfiguration = DBConfiguration("mysql", (mysqlJson \ "db").extract[String], null,

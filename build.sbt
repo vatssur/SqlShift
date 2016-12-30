@@ -1,4 +1,4 @@
-name := "mysql-redshift-loader"
+name := "sqlshift"
 organization := "com.goibibo"
 version := "0.1"
 scalaVersion := "2.10.6"
@@ -28,8 +28,11 @@ libraryDependencies ++= Seq(
     "org.json4s" %% "json4s-native" % "3.4.1",
     "org.json4s" %% "json4s-jackson" % "3.4.1",
     "org.slf4j" % "slf4j-simple" % "1.7.21",
-    "javax.mail" % "mail" % "1.4.7"
+    "javax.mail" % "mail" % "1.4.7",
+    "io.dropwizard" % "dropwizard-metrics" % "1.0.5"
 )
+
+unmanagedJars in Compile += file("lib/RedshiftJDBC4-1.1.17.1017.jar")
 
 scalacOptions ++= Seq(
     "-encoding", "UTF-8",

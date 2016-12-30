@@ -1,8 +1,10 @@
-package com.goibibo.sqlshift
+package com.goibibo.sqlshift.commons
 
 import java.util.Properties
 import java.util.regex._
 
+import com.goibibo.sqlshift.models.Configurations.{DBConfiguration, S3Config}
+import com.goibibo.sqlshift.models.InternalConfs.{IncrementalSettings, InternalConfig, TableDetails}
 import org.apache.spark.sql._
 import org.slf4j.{Logger, LoggerFactory}
 
@@ -191,7 +193,8 @@ object MySQLToRedshiftMigrator {
 
         val preActions: String = dropAndCreateTableString +
                 (if (dropStagingTableString != "")
-                    dropStagingTableString + alterTableQuery(df, redshiftConf, redshiftTableName) + "\n" + createStagingTableString
+                    dropStagingTableString + alterTableQuery(tableDetails, redshiftConf) + "\n" +
+                            createStagingTableString
                 else "")
 
         val postActions: String = if (dropStagingTableString != "") {
@@ -271,22 +274,32 @@ object MySQLToRedshiftMigrator {
         }
     }
 
-    private def alterTableQuery(df: DataFrame, redshiftConf: DBConfiguration, redshiftTableName: String): String = {
+    /**
+      * Alter table to add or delete columns in redshift table if any changes occurs in sql table
+      *
+      * @param tableDetails sql table details
+      * @param redshiftConf redshift configuration
+      * @return Query of add and delete columns from redshift table
+      */
+    private def alterTableQuery(tableDetails: TableDetails, redshiftConf: DBConfiguration): String = {
 
+        val redshiftTableName: String = RedshiftUtil.getTableNameWithSchema(redshiftConf)
         try {
             val mainTableColumnNames: Set[String] = RedshiftUtil.getColumnNamesAndTypes(redshiftConf).keys.toSet
 
             // All columns name must be distinct other wise redshift load will fail
-            val stagingTableColumnAndTypes: Map[String, String] = df.dtypes.toMap
+            val stagingTableColumnAndTypes: Map[String, String] = tableDetails
+                    .validFields
+                    .map { td => td.fieldName -> td.fieldType }
+                    .toMap
+
             val stagingTableColumnNames: Set[String] = stagingTableColumnAndTypes.keys.toSet
             val addedColumns: Set[String] = stagingTableColumnNames -- mainTableColumnNames
             val deletedColumns: Set[String] = mainTableColumnNames -- stagingTableColumnNames
 
             val addColumnsQuery = addedColumns.foldLeft("\n") { (query, columnName) =>
                 query + s"ALTER TABLE $redshiftTableName ADD COLUMN " + columnName + " " +
-                        RedshiftUtil.scalaToRedshiftTypeConverter.getOrElse(stagingTableColumnAndTypes.getOrElse(columnName, "")
-                                .toUpperCase.replace("TYPE", ""), "VARCHAR") +
-                        ";\n"
+                        stagingTableColumnAndTypes.getOrElse(columnName, "VARCHAR") + ";\n"
             }
 
             val deleteColumnQuery = deletedColumns.foldLeft("\n") { (query, columnName) =>

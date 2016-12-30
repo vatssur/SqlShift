@@ -1,8 +1,10 @@
-package com.goibibo.sqlshift
+package com.goibibo.sqlshift.commons
 
 import java.sql.{Connection, DriverManager, ResultSet}
 import java.util.Properties
 
+import com.goibibo.sqlshift.models.Configurations.DBConfiguration
+import com.goibibo.sqlshift.models.InternalConfs.{DBField, InternalConfig, TableDetails}
 import org.apache.spark.sql.{DataFrameReader, SQLContext}
 import org.slf4j.LoggerFactory
 
@@ -274,24 +276,6 @@ object RedshiftUtil {
             "YEAR" -> RedshiftType("INT")
         )
     }
-
-    val scalaToRedshiftTypeConverter: Map[String, String] = Map(
-        "INTEGER" -> "INT4",
-        "SHORT" -> "INT4",
-        "LONG" -> "INT4",
-        "BYTE" -> "INT2",
-        "STRING" -> "VARCHAR",
-        "CHAR" -> "VARCHAR(4)",
-        "FLOAT" -> "FLOAT4",
-        "DOUBLE" -> "FLOAT8",
-        "DECIMAL" -> "DECIMAL",
-        "BOOLEAN" -> "BOOLEAN",
-        "DATE" -> "DATE",
-        "TIME" -> "VARCHAR(11)",
-        "DATETIME" -> "TIMESTAMP",
-        "TIMESTAMP" -> "TIMESTAMP",
-        "YEAR" -> "INT"
-    )
 
     def getDataFrameReader(mysqlConfig: DBConfiguration, sqlQuery: String, sqlContext: SQLContext): DataFrameReader = {
         sqlContext.read.format("jdbc").
