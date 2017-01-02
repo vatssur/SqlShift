@@ -4,12 +4,12 @@ import java.io.File
 import java.util.Properties
 import java.util.concurrent.TimeUnit
 
-import com.codahale.metrics.Timer.Context
 import com.codahale.metrics._
-import com.goibibo.sqlshift.alerting.MailUtil
+import com.goibibo.sqlshift.alerting.{MailAPI, MailUtil}
+import com.goibibo.sqlshift.commons.MetricsWrapper._
 import com.goibibo.sqlshift.commons.{MySQLToRedshiftMigrator, Util}
 import com.goibibo.sqlshift.models.Configurations.AppConfiguration
-import com.goibibo.sqlshift.models.InternalConfs.TableDetails
+import com.goibibo.sqlshift.models.InternalConfs.{MigrationTime, TableDetails}
 import com.goibibo.sqlshift.models.Params.{AppParams, MailParams}
 import com.goibibo.sqlshift.models.Status
 import org.apache.spark.sql.{DataFrame, SQLContext}
@@ -20,16 +20,6 @@ import scopt.OptionParser
   * Entry point to RDS to Redshift data pipeline
   */
 object SQLShift {
-    val registry: MetricRegistry = new MetricRegistry()
-
-    private val slf4jReporter: Slf4jReporter = Slf4jReporter.forRegistry(registry)
-            .outputTo(LoggerFactory.getLogger("SQLShiftMetrics"))
-            .convertRatesTo(TimeUnit.SECONDS)
-            .convertDurationsTo(TimeUnit.MILLISECONDS)
-            .build()
-
-    private val jmxReporter: JmxReporter = JmxReporter.forRegistry(registry).build()
-
     private val logger: Logger = LoggerFactory.getLogger(SQLShift.getClass)
     private val parser: OptionParser[AppParams] =
         new OptionParser[AppParams]("Main") {
@@ -75,7 +65,7 @@ object SQLShift {
 
             opt[Long]("metrics-window-size")
                     .abbr("mws")
-                    .text("Metrics window size. Default: 5 seconds")
+                    .text("Metrics window size in seconds. Default: 5 seconds")
                     .optional()
                     .action((x, c) => c.copy(metricsWindowSize = x))
 
@@ -85,9 +75,7 @@ object SQLShift {
 
     private def run(sqlContext: SQLContext, configurations: Seq[AppConfiguration], isRetry: Boolean): Unit = {
         implicit val crashOnInvalidValue: Boolean = true
-
-        val counter: Counter = registry.counter("NumberOFTables")
-        counter.inc(configurations.size)
+        incCounter("NumberOFTables",configurations.size.toLong)
 
         for (configuration <- configurations) {
             if (!isRetry && configuration.status.isDefined && !configuration.status.get.isSuccessful) {
@@ -96,44 +84,57 @@ object SQLShift {
                         s"with reason: ${e.getMessage}\n${e.getStackTraceString}")
             } else {
                 logger.info("Configuration: \n{}", configuration.toString)
+                val mySqlTableName = s"${configuration.mysqlConf.db}.${configuration.mysqlConf.tableName}"
+                val redshiftTableName = s"${configuration.redshiftConf.schema}.${configuration.mysqlConf.tableName}"
+                sqlContext.sparkContext.setJobDescription(s"$mySqlTableName => $redshiftTableName")
+                val metricName = mySqlTableName + s".${configuration.redshiftConf.schema}"
                 try {
-                    val mySqlTableName = s"${configuration.mysqlConf.db}.${configuration.mysqlConf.tableName}"
-                    val redshiftTableName = s"${configuration.redshiftConf.schema}.${configuration.mysqlConf.tableName}"
-                    sqlContext.sparkContext.setJobDescription(s"$mySqlTableName => $redshiftTableName")
-                    val timer: Timer = registry.timer(s"${configuration.mysqlConf.tableName}-load-metric")
-                    val timeContext: Context = timer.time()
+                    val context = getTimerMetrics(s"$metricName.loadMetrics")
                     // Loading table
                     val loadedTable: (DataFrame, TableDetails) = MySQLToRedshiftMigrator.loadToSpark(configuration.mysqlConf,
                         sqlContext, configuration.internalConfig)
+                    // For stopping lazy evaluation
+                    loadedTable._1.count()
+                    val loadTime: Long = TimeUnit.NANOSECONDS.toMillis(context.stop())
 
-                    // Storing table to redshift
-                    if (loadedTable._1 != null) {
-                        MySQLToRedshiftMigrator.storeToRedshift(loadedTable._1, loadedTable._2, configuration.redshiftConf,
-                            configuration.s3Conf, sqlContext, configuration.internalConfig)
-                    }
-                    timeContext.stop()
+                    val storeTime: Long =
+                        if (loadedTable._1 != null) {
+                            // Storing table to redshift
+                            val context = getTimerMetrics(s"$metricName.storeMetrics")
+                            MySQLToRedshiftMigrator.storeToRedshift(loadedTable._1, loadedTable._2,
+                                configuration.redshiftConf, configuration.s3Conf, sqlContext,
+                                configuration.internalConfig)
+                            TimeUnit.NANOSECONDS.toMillis(context.stop())
+                        } else 0
+
                     logger.info("Successful transfer for configuration\n{}", configuration.toString)
                     configuration.status = Some(Status(isSuccessful = true, null))
+                    configuration.migrationTime = Some(MigrationTime(loadTime = loadTime, storeTime = storeTime))
+                    registerGauge(metricName = s"$metricName.migrationSuccess", value = 1)
                 } catch {
                     case e: Exception =>
                         logger.info("Transfer Failed for configuration: \n{}", configuration)
                         logger.error("Stack Trace: ", e.fillInStackTrace())
                         configuration.status = Some(Status(isSuccessful = false, e))
+                        configuration.migrationTime = Some(MigrationTime(loadTime = 0, storeTime = 0))
+                        incCounter(metricName = s"$metricName.migrationFailedRetries")
                 }
             }
         }
     }
 
     private def rerun(sqlContext: SQLContext, configurations: Seq[AppConfiguration], retryCount: Int): Unit = {
-        val counter: Counter = registry.counter("NumberOFFailedTables")
+        val counter: Counter = metricRegistry.counter("NumberOFFailedTables")
         var retryCnt: Int = retryCount
         var failedConfigurations: Seq[AppConfiguration] = null
         while (retryCnt > 0) {
             logger.info("Retrying with retry count: {}", retryCnt)
             failedConfigurations = Seq()
             for (configuration <- configurations) {
-                if (configuration.status.isDefined && !configuration.status.get.isSuccessful &&
-                        configuration.status.get.e.getMessage.contains("VACUUM is running")) {
+                if (configuration.status.isDefined && !configuration.status.get.isSuccessful) {
+                    val metricName = s"${configuration.mysqlConf.db}.${configuration.mysqlConf.tableName}." +
+                            s"${configuration.redshiftConf.schema}"
+                    incCounter(s"$metricName.migrationFailedRetries")
                     failedConfigurations = failedConfigurations :+ configuration
                 }
             }
@@ -143,7 +144,7 @@ object SQLShift {
             } else {
                 run(sqlContext, failedConfigurations, isRetry = true)
             }
-            counter.inc(failedConfigurations.size)
+            counter.inc(failedConfigurations.size.toLong)
             retryCnt -= 1
         }
         logger.info("Some failed tables are still left")
@@ -152,13 +153,11 @@ object SQLShift {
     private def startMetrics(appParams: AppParams): Unit = {
         // Start metrics reporter
         if (appParams.logMetricsReporting) {
-            logger.info("Starting log reporting with window size: {}", appParams.metricsWindowSize)
-            slf4jReporter.start(appParams.metricsWindowSize, TimeUnit.SECONDS)
+            startSLF4JReporting(appParams.metricsWindowSize)
         }
 
         if (appParams.jmxMetricsReporting) {
-            logger.info("Starting JMX reporting...")
-            jmxReporter.start()
+            startJMXReporting()
         }
     }
 
@@ -188,6 +187,7 @@ object SQLShift {
 
         //Closing Spark Context
         Util.closeSparkContext(sqlContext.sparkContext)
+        logger.info("Info Section: \n{}", Util.formattedInfoSection(configurations))
 
         if (appParams.mailDetailsPath == null) {
             logger.info("Mail details properties file is not provided!!!")
@@ -196,17 +196,11 @@ object SQLShift {
             logger.info("Alerting developers....")
             val prop: Properties = new Properties()
             prop.load(new File(appParams.mailDetailsPath).toURI.toURL.openStream())
-            val mailParams: MailParams = MailParams(prop.getProperty("alert.host"),
-                null,
-                prop.getProperty("alert.to", ""),
-                prop.getProperty("alert.cc", ""),
-                prop.getProperty("alert.subject", ""))
-            new MailUtil(mailParams).send(configurations.toList)
+            // Sending mail
+            new MailAPI(MailUtil.getMailParams(prop)).send(configurations.toList)
         }
 
         // For collecting metrics for last table
         Thread.sleep(appParams.metricsWindowSize * 1000)
-
-        logger.info("Info Section: \n{}", Util.formattedInfoSection(configurations))
     }
 }

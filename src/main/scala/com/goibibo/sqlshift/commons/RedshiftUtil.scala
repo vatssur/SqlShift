@@ -56,7 +56,7 @@ object RedshiftUtil {
 
         val columnMap = (1 to count).foldLeft(Map[String, String]()) { (set, i) =>
 
-            set + (resultSetMetaData.getColumnName(i) -> resultSetMetaData.getColumnTypeName(i))
+            set + (resultSetMetaData.getColumnName(i).toLowerCase -> resultSetMetaData.getColumnTypeName(i))
         }
         columnMap
     }

@@ -204,6 +204,7 @@ object MySQLToRedshiftMigrator {
                |    WHERE $redshiftTableName.$mergeKey = $redshiftStagingTableName.$mergeKey; """.stripMargin + "\n" +
                     (internalConfig.incrementalSettings.get.customSelectFromStaging match {
                         case None =>
+                            // Handling columns order mismatch
                             s"""INSERT INTO $redshiftTableName ($tableColumns)
                                |SELECT $tableColumns FROM $redshiftStagingTableName;""".stripMargin
                         case Some(customSelect) =>
@@ -236,6 +237,7 @@ object MySQLToRedshiftMigrator {
         else redshiftTableName
 
         logger.info("redshiftTableNameForIngestion: {}", redshiftTableNameForIngestion)
+
         val redshiftWriterPartitioned: DataFrame = internalConfig.reducePartitions match {
             case Some(reducePartitions) =>
                 if (df.rdd.getNumPartitions == reducePartitions)
@@ -299,7 +301,7 @@ object MySQLToRedshiftMigrator {
 
             val addColumnsQuery = addedColumns.foldLeft("\n") { (query, columnName) =>
                 query + s"ALTER TABLE $redshiftTableName ADD COLUMN " + columnName + " " +
-                        stagingTableColumnAndTypes.getOrElse(columnName, "VARCHAR") + ";\n"
+                        stagingTableColumnAndTypes.getOrElse(columnName, "") + ";\n"
             }
 
             val deleteColumnQuery = deletedColumns.foldLeft("\n") { (query, columnName) =>

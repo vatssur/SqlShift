@@ -254,15 +254,19 @@ object Util {
     }
 
     def formattedInfoSection(appConfigurations: Seq[AppConfiguration]): String = {
-        var formattedString = "-" * 106 + "\n"
-        formattedString += String.format("|%4s| %20s| %40s| %20s| %12s|\n", "SNo", "MySQL DB", "Table Name",
-            "Redshift Schema", "isSuccessful")
-        formattedString += "-" * 106 + "\n"
+        val header = String.format("|%4s| %20s| %40s| %20s| %12s| %8s| %9s|", "SNo", "MySQL DB", "Table Name",
+            "Redshift Schema", "isSuccessful", "LoadTime", "StoreTime")
+
+        var formattedString = "-" * header.length + "\n"
+        formattedString += header + "\n"
+        formattedString += "-" * header.length + "\n"
         var sno = 1
         for (appConf <- appConfigurations) {
-            formattedString += String.format("|%4s| %20s| %40s| %20s| %12s|\n", sno.toString, appConf.mysqlConf.db,
-                appConf.mysqlConf.tableName, appConf.redshiftConf.schema, appConf.status.get.isSuccessful.toString)
-            formattedString += "-" * 106 + "\n"
+            formattedString += String.format("|%4s| %20s| %40s| %20s| %12s| %8s| %9s|\n", sno.toString,
+                appConf.mysqlConf.db, appConf.mysqlConf.tableName, appConf.redshiftConf.schema,
+                appConf.status.get.isSuccessful.toString, appConf.migrationTime.get.loadTime.toString,
+                appConf.migrationTime.get.storeTime.toString)
+            formattedString += "-" * header.length + "\n"
             sno += 1
         }
         formattedString

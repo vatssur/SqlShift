@@ -18,7 +18,9 @@ private[sqlshift] object Params {
                          metricsWindowSize: Long = 5) extends Param
 
     case class MailParams(host: String,
-                          password: String,
+                          port: Int = 25,
+                          username: String,
+                          password: Option[String] = None,
                           to: String,
                           cc: String,
                           subject: String) extends Param

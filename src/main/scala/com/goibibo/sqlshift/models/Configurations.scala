@@ -1,6 +1,6 @@
 package com.goibibo.sqlshift.models
 
-import com.goibibo.sqlshift.models.InternalConfs.InternalConfig
+import com.goibibo.sqlshift.models.InternalConfs.{InternalConfig, MigrationTime}
 
 /**
   * Project: mysql-redshift-loader
@@ -39,7 +39,8 @@ private[sqlshift] object Configurations {
                                 redshiftConf: DBConfiguration,
                                 s3Conf: S3Config,
                                 internalConfig: InternalConfig,
-                                var status: Option[Status] = None) {
+                                var status: Option[Status] = None,
+                                var migrationTime: Option[MigrationTime]= None) {
 
         override def toString: String = {
             val mysqlString: String = "\tmysql-db : " + mysqlConf.db + "\n\tmysql-table : " + mysqlConf.tableName

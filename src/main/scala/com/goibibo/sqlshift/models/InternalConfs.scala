@@ -11,7 +11,7 @@ private[sqlshift] object InternalConfs {
 
     case class DBField(fieldName: String,
                        fieldType: String,
-                       javaType: Option[String] = None) extends InternalConf{
+                       javaType: Option[String] = None) extends InternalConf {
 
         override def toString: String = {
             s"""{
@@ -68,5 +68,13 @@ private[sqlshift] object InternalConfs {
                               incrementalSettings: Option[IncrementalSettings] = None,
                               mapPartitions: Option[Int] = None,
                               reducePartitions: Option[Int] = None) extends InternalConf
+
+    case class MigrationTime(loadTime: Long,
+                             storeTime: Long) {
+
+        override def toString: String = {
+            s"""{ LoadTime: $loadTime ms, StoreTime: $storeTime ms}"""
+        }
+    }
 
 }
