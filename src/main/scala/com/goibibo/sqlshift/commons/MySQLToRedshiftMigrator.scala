@@ -1,8 +1,10 @@
-package com.goibibo.sqlshift
+package com.goibibo.sqlshift.commons
 
 import java.util.Properties
 import java.util.regex._
 
+import com.goibibo.sqlshift.models.Configurations.{DBConfiguration, S3Config}
+import com.goibibo.sqlshift.models.InternalConfs.{IncrementalSettings, InternalConfig, TableDetails}
 import org.apache.spark.sql._
 import org.slf4j.{Logger, LoggerFactory}
 
@@ -182,21 +184,29 @@ object MySQLToRedshiftMigrator {
                                 mk
                         }
                     } else {
-                        logger.info(s"Shall merge is not specified passing megeKey as empty")
+                        logger.info(s"Shall merge is not specified passing mergeKey as empty")
                         ""
                     }
                 }
                 (dropStatingTableStr, mKey, shallVaccumAfterLoad)
         }
 
-        val preActions = dropAndCreateTableString + (if (dropStagingTableString != "") dropStagingTableString + createStagingTableString else "")
+        val preActions: String = dropAndCreateTableString +
+                (if (dropStagingTableString != "")
+                    dropStagingTableString + alterTableQuery(tableDetails, redshiftConf) + "\n" +
+                            createStagingTableString
+                else "")
+
         val postActions: String = if (dropStagingTableString != "") {
+            val tableColumns = tableDetails.validFields.map(_.fieldName).mkString(", ")
+
             s"""DELETE FROM $redshiftTableName USING $redshiftStagingTableName
-               |    WHERE $redshiftTableName.$mergeKey = $redshiftStagingTableName.$mergeKey; """.stripMargin + "\n" + (
-                    internalConfig.incrementalSettings.get.customSelectFromStaging match {
+               |    WHERE $redshiftTableName.$mergeKey = $redshiftStagingTableName.$mergeKey; """.stripMargin + "\n" +
+                    (internalConfig.incrementalSettings.get.customSelectFromStaging match {
                         case None =>
-                            s"""INSERT into $redshiftTableName
-                               |SELECT * FROM $redshiftStagingTableName;""".stripMargin
+                            // Handling columns order mismatch
+                            s"""INSERT INTO $redshiftTableName ($tableColumns)
+                               |SELECT $tableColumns FROM $redshiftStagingTableName;""".stripMargin
                         case Some(customSelect) =>
                             val pattern = Pattern.compile("(?:AS|as)\\s*(\\w+)\\s*(?:,|$)")
                             val matcher = pattern.matcher(customSelect)
@@ -204,31 +214,31 @@ object MySQLToRedshiftMigrator {
                             while (matcher.find()) {
                                 val matched = matcher.group(1)
                                 customFields += matched
-                                logger.info("matched =>{}", matched)
+                                logger.info("matched => {}", matched)
                             }
-                            val tableColumns = tableDetails.validFields.map(_.fieldName).mkString(",")
                             val customFieldsStr = customFields.mkString(",")
-                            val customColumns = if (customFields.nonEmpty) s"( $tableColumns,$customFieldsStr )" else ""
-                            logger.info("customColumns =>{}", customColumns)
-                            s"""INSERT into $redshiftTableName $customColumns
-                               |SELECT *,$customSelect FROM $redshiftStagingTableName;""".stripMargin
+                            val customColumns = if (customFields.nonEmpty) s"( $tableColumns, $customFieldsStr )" else ""
+                            logger.info("customColumns => {}", customColumns)
+                            s"""INSERT INTO $redshiftTableName $customColumns
+                               |SELECT *, $customFieldsStr FROM $redshiftStagingTableName;""".stripMargin
                     }) + "\n" + dropStagingTableString
         } else {
             ""
         }
 
-        logger.info("preActions = {}", preActions)
-        logger.info("postActions = {}", postActions)
+        logger.info("Redshift PreActions = {}", preActions)
+        logger.info("Redshift PostActions = {}", postActions)
 
         val redshiftWriteMode = if (dropStagingTableString != "") "overwrite" else "append"
-        logger.info("Write mode: {}", redshiftWriteMode)
+        logger.info("Redshift write mode: {}", redshiftWriteMode)
 
 
         val redshiftTableNameForIngestion = if (dropStagingTableString != "") redshiftStagingTableName
         else redshiftTableName
 
         logger.info("redshiftTableNameForIngestion: {}", redshiftTableNameForIngestion)
-        val redshiftWriterPartitioned = internalConfig.reducePartitions match {
+
+        val redshiftWriterPartitioned: DataFrame = internalConfig.reducePartitions match {
             case Some(reducePartitions) =>
                 if (df.rdd.getNumPartitions == reducePartitions)
                     df.repartition(reducePartitions)
@@ -263,6 +273,46 @@ object MySQLToRedshiftMigrator {
             RedshiftUtil.performVacuum(redshiftConf)
         } else {
             logger.info("Not opting for Vacuum, shallVacuumAfterLoad is false")
+        }
+    }
+
+    /**
+      * Alter table to add or delete columns in redshift table if any changes occurs in sql table
+      *
+      * @param tableDetails sql table details
+      * @param redshiftConf redshift configuration
+      * @return Query of add and delete columns from redshift table
+      */
+    private def alterTableQuery(tableDetails: TableDetails, redshiftConf: DBConfiguration): String = {
+
+        val redshiftTableName: String = RedshiftUtil.getTableNameWithSchema(redshiftConf)
+        try {
+            val mainTableColumnNames: Set[String] = RedshiftUtil.getColumnNamesAndTypes(redshiftConf).keys.toSet
+
+            // All columns name must be distinct other wise redshift load will fail
+            val stagingTableColumnAndTypes: Map[String, String] = tableDetails
+                    .validFields
+                    .map { td => td.fieldName -> td.fieldType }
+                    .toMap
+
+            val stagingTableColumnNames: Set[String] = stagingTableColumnAndTypes.keys.toSet
+            val addedColumns: Set[String] = stagingTableColumnNames -- mainTableColumnNames
+            val deletedColumns: Set[String] = mainTableColumnNames -- stagingTableColumnNames
+
+            val addColumnsQuery = addedColumns.foldLeft("\n") { (query, columnName) =>
+                query + s"ALTER TABLE $redshiftTableName ADD COLUMN " + columnName + " " +
+                        stagingTableColumnAndTypes.getOrElse(columnName, "") + ";\n"
+            }
+
+            val deleteColumnQuery = deletedColumns.foldLeft("\n") { (query, columnName) =>
+                query + s"ALTER TABLE $redshiftTableName DROP COLUMN " + columnName + ";\n"
+            }
+
+            addColumnsQuery + deleteColumnQuery
+        } catch {
+            case e: Exception =>
+                logger.warn("Error occurred while altering table: \n{}", e.getStackTrace.mkString("\n"))
+                ""
         }
     }
 }

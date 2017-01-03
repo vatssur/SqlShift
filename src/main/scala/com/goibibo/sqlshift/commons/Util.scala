@@ -1,9 +1,11 @@
-package com.goibibo.sqlshift
+package com.goibibo.sqlshift.commons
 
 import java.io.{File, InputStream}
 import java.sql.ResultSet
 
-import com.goibibo.sqlshift
+import com.goibibo.sqlshift.models.Configurations.{AppConfiguration, DBConfiguration, S3Config}
+import com.goibibo.sqlshift.models.InternalConfs.{IncrementalSettings, InternalConfig}
+import com.goibibo.sqlshift.models._
 import org.apache.spark.sql.SQLContext
 import org.apache.spark.{SparkConf, SparkContext}
 import org.json4s.native.JsonMethods._
@@ -39,7 +41,7 @@ object Util {
             defaultExecutorMemorySize
         }
         logger.info("executorMemorySize = {}", executorMemorySize)
-        return executorMemorySize
+        executorMemorySize
     }
 
     /**
@@ -72,8 +74,7 @@ object Util {
     def getMinMax(mysqlDBConf: DBConfiguration, distKey: String, whereCondition: Option[String] = None): (Long, Long) = {
         val connection = RedshiftUtil.getConnection(mysqlDBConf)
 
-        var query = s"SELECT min($distKey), max($distKey) " +
-                s"FROM ${mysqlDBConf.db}.${mysqlDBConf.tableName}"
+        var query = s"SELECT min($distKey), max($distKey) FROM ${mysqlDBConf.db}.${mysqlDBConf.tableName}"
         if (whereCondition.nonEmpty) {
             query += " WHERE " + whereCondition.get
         }
@@ -85,15 +86,14 @@ object Util {
         logger.info(s"Minimum $distKey: $min :: Maximum $distKey: $max")
         result.close()
         connection.close()
-        return (min, max)
+        (min, max)
     }
 
     /**
       * Get optimum number of partitions on the basis of auto incremental and executor size.
       * If fails then return 1
       *
-      * @param mysqlDBConf    mysql configuration
-      * @param whereCondition filter condition(without where clause)
+      * @param mysqlDBConf mysql configuration
       * @return no of partitions
       */
     def getPartitions(sqlContext: SQLContext, mysqlDBConf: DBConfiguration, minMaxAndRows: (Long, Long)): Int = {
@@ -124,8 +124,12 @@ object Util {
         (sc, sqlContext)
     }
 
+    def closeSparkContext(sparkContext: SparkContext): Unit = {
+        sparkContext.stop()
+    }
+
     private def getDBsConf(mysqlJson: JValue, redshiftJson: JValue, s3Json: JValue, table: JValue):
-    (sqlshift.DBConfiguration, sqlshift.DBConfiguration, sqlshift.S3Config) = {
+    (DBConfiguration, DBConfiguration, S3Config) = {
         implicit val formats = DefaultFormats
 
         val mysqlConf: DBConfiguration = DBConfiguration("mysql", (mysqlJson \ "db").extract[String], null,
@@ -250,15 +254,19 @@ object Util {
     }
 
     def formattedInfoSection(appConfigurations: Seq[AppConfiguration]): String = {
-        var formattedString = "-" * 106 + "\n"
-        formattedString += String.format("|%4s| %20s| %40s| %20s| %12s|\n", "SNo", "MySQL DB", "Table Name",
-            "Redshift Schema", "isSuccessful")
-        formattedString += "-" * 106 + "\n"
+        val header = String.format("|%4s| %20s| %40s| %20s| %12s| %8s| %9s|", "SNo", "MySQL DB", "Table Name",
+            "Redshift Schema", "isSuccessful", "LoadTime", "StoreTime")
+
+        var formattedString = "-" * header.length + "\n"
+        formattedString += header + "\n"
+        formattedString += "-" * header.length + "\n"
         var sno = 1
         for (appConf <- appConfigurations) {
-            formattedString += String.format("|%4s| %20s| %40s| %20s| %12s|\n", sno.toString, appConf.mysqlConf.db,
-                appConf.mysqlConf.tableName, appConf.redshiftConf.schema, appConf.status.get.isSuccessful.toString)
-            formattedString += "-" * 106 + "\n"
+            formattedString += String.format("|%4s| %20s| %40s| %20s| %12s| %8s| %9s|\n", sno.toString,
+                appConf.mysqlConf.db, appConf.mysqlConf.tableName, appConf.redshiftConf.schema,
+                appConf.status.get.isSuccessful.toString, appConf.migrationTime.get.loadTime.toString,
+                appConf.migrationTime.get.storeTime.toString)
+            formattedString += "-" * header.length + "\n"
             sno += 1
         }
         formattedString

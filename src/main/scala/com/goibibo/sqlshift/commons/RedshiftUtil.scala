@@ -1,8 +1,10 @@
-package com.goibibo.sqlshift
+package com.goibibo.sqlshift.commons
 
-import java.sql.{Connection, DriverManager}
+import java.sql.{Connection, DriverManager, ResultSet}
 import java.util.Properties
 
+import com.goibibo.sqlshift.models.Configurations.DBConfiguration
+import com.goibibo.sqlshift.models.InternalConfs.{DBField, InternalConfig, TableDetails}
 import org.apache.spark.sql.{DataFrameReader, SQLContext}
 import org.slf4j.LoggerFactory
 
@@ -36,6 +38,27 @@ object RedshiftUtil {
         Class.forName("com.mysql.jdbc.Driver")
         Class.forName("com.amazon.redshift.jdbc4.Driver")
         DriverManager.getConnection(connectionString, connectionProps)
+    }
+
+    /**
+      * Get all column names and data types from redshift
+      *
+      * @param dbConf redshift configuration
+      * @return
+      */
+    def getColumnNamesAndTypes(dbConf: DBConfiguration): Map[String, String] = {
+        logger.info("Getting all column names for {}", dbConf.toString)
+        val query = s"SELECT * FROM ${dbConf.schema}.${dbConf.tableName} WHERE 1 < 0;"
+        val connection = RedshiftUtil.getConnection(dbConf)
+        val result: ResultSet = connection.createStatement().executeQuery(query)
+        val resultSetMetaData = result.getMetaData
+        val count = resultSetMetaData.getColumnCount
+
+        val columnMap = (1 to count).foldLeft(Map[String, String]()) { (set, i) =>
+
+            set + (resultSetMetaData.getColumnName(i).toLowerCase -> resultSetMetaData.getColumnTypeName(i))
+        }
+        columnMap
     }
 
     def getVacuumString(shallVacuumAfterLoad: Boolean, redshiftConf: DBConfiguration): String = {

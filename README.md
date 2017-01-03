@@ -1,6 +1,6 @@
-# mysql-redshift-loader
+# SQL Shift(MySQL To Redshift Data Transfer)
 
-This program will transfer tables from MySQL to Redshift.
+This program will transfer tables from **MySQL like databases** to Redshift.
 
 ## Usage
 
@@ -142,20 +142,42 @@ Json schema is :-
 }
 ```
 
-Mail configuration for alerting :-
+- Mail configuration for alerting :-
 
 ```PROPERTIES
 alert.host =
 alert.to =
 alert.cc =
+alert.subject =
 ```
 
-Submitting spark job on yarn :-
+- Submitting spark job on yarn :-
 ```
 spark-submit \
---class com.goibibo.sqlshift.Main \
+--class com.goibibo.sqlshift.SQLShift \
 --master yarn \
---packages "org.apache.hadoop:hadoop-aws:2.7.2,com.databricks:spark-redshift_2.10:1.1.0,com.amazonaws:aws-java-sdk:1.7.4,mysql:mysql-connector-java:5.1.39" \
---jars="RedshiftJDBC4-1.1.17.1017.jar,mysql-redshift-loader_2.10-0.1.jar"  \
 mysql-redshift-loader-assembly-0.1.jar -td table-details.json -mail mail.conf
+```
+
+- More Options
+
+```text
+RDS to Redshift DataPipeline
+Usage: Main [options]
+
+  -td, --table-details <path to Json>
+                           Table details json file path including
+  -mail, --mail-details <path to properties file>
+                           Mail details property file path(For enabling mail)
+  -aof, --alert-on-failure
+                           Alert only when fails
+  -rc, --retry-count <count>
+                           How many times to retry on failed transfers
+  -lmr, --log-metrics-reporter
+                           Enable metrics reporting in logs
+  -jmr, --jmx-metrics-reporter
+                           Enable metrics reporting through JMX
+  -mws, --metrics-window-size <value>
+                           Metrics window size in seconds. Default: 5 seconds
+  --help                   Usage Of arguments
 ```

@@ -2,8 +2,16 @@ package com.goibibo.sqlshift
 
 import java.io.File
 import java.util.Properties
+import java.util.concurrent.TimeUnit
 
-import com.goibibo.sqlshift.alerting.MailUtil
+import com.codahale.metrics._
+import com.goibibo.sqlshift.alerting.{MailAPI, MailUtil}
+import com.goibibo.sqlshift.commons.MetricsWrapper._
+import com.goibibo.sqlshift.commons.{MySQLToRedshiftMigrator, Util}
+import com.goibibo.sqlshift.models.Configurations.AppConfiguration
+import com.goibibo.sqlshift.models.InternalConfs.{MigrationTime, TableDetails}
+import com.goibibo.sqlshift.models.Params.{AppParams, MailParams}
+import com.goibibo.sqlshift.models.Status
 import org.apache.spark.sql.{DataFrame, SQLContext}
 import org.slf4j.{Logger, LoggerFactory}
 import scopt.OptionParser
@@ -11,37 +19,55 @@ import scopt.OptionParser
 /**
   * Entry point to RDS to Redshift data pipeline
   */
-object Main {
-    private val logger: Logger = LoggerFactory.getLogger(Main.getClass)
+object SQLShift {
+    private val logger: Logger = LoggerFactory.getLogger(SQLShift.getClass)
     private val parser: OptionParser[AppParams] =
         new OptionParser[AppParams]("Main") {
             head("RDS to Redshift DataPipeline")
-            opt[String]("tableDetails")
+            opt[String]("table-details")
                     .abbr("td")
                     .text("Table details json file path including")
                     .required()
                     .valueName("<path to Json>")
                     .action((x, c) => c.copy(tableDetailsPath = x))
 
-            opt[String]("mailDetails")
+            opt[String]("mail-details")
                     .abbr("mail")
                     .text("Mail details property file path(For enabling mail)")
                     .optional()
                     .valueName("<path to properties file>")
                     .action((x, c) => c.copy(mailDetailsPath = x))
 
-            opt[Unit]("alertOnFailure")
+            opt[Unit]("alert-on-failure")
                     .abbr("aof")
                     .text("Alert only when fails")
                     .optional()
                     .action((_, c) => c.copy(alertOnFailure = true))
 
-            opt[Int]("retryCount")
+            opt[Int]("retry-count")
                     .abbr("rc")
                     .text("How many times to retry on failed transfers")
                     .optional()
                     .valueName("<count>")
                     .action((x, c) => c.copy(retryCount = x))
+
+            opt[Unit]("log-metrics-reporter")
+                    .abbr("lmr")
+                    .text("Enable metrics reporting in logs")
+                    .optional()
+                    .action((x, c) => c.copy(logMetricsReporting = true))
+
+            opt[Unit]("jmx-metrics-reporter")
+                    .abbr("jmr")
+                    .text("Enable metrics reporting through JMX")
+                    .optional()
+                    .action((x, c) => c.copy(jmxMetricsReporting = true))
+
+            opt[Long]("metrics-window-size")
+                    .abbr("mws")
+                    .text("Metrics window size in seconds. Default: 5 seconds")
+                    .optional()
+                    .action((x, c) => c.copy(metricsWindowSize = x))
 
             help("help")
                     .text("Usage Of arguments")
@@ -49,6 +75,7 @@ object Main {
 
     private def run(sqlContext: SQLContext, configurations: Seq[AppConfiguration], isRetry: Boolean): Unit = {
         implicit val crashOnInvalidValue: Boolean = true
+        incCounter("NumberOFTables",configurations.size.toLong)
 
         for (configuration <- configurations) {
             if (!isRetry && configuration.status.isDefined && !configuration.status.get.isSuccessful) {
@@ -57,37 +84,57 @@ object Main {
                         s"with reason: ${e.getMessage}\n${e.getStackTraceString}")
             } else {
                 logger.info("Configuration: \n{}", configuration.toString)
+                val mySqlTableName = s"${configuration.mysqlConf.db}.${configuration.mysqlConf.tableName}"
+                val redshiftTableName = s"${configuration.redshiftConf.schema}.${configuration.mysqlConf.tableName}"
+                sqlContext.sparkContext.setJobDescription(s"$mySqlTableName => $redshiftTableName")
+                val metricName = mySqlTableName + s".${configuration.redshiftConf.schema}"
                 try {
-                    val mySqlTableName = s"${configuration.mysqlConf.db}.${configuration.mysqlConf.tableName}"
-                    val redshiftTableName = s"${configuration.redshiftConf.schema}.${configuration.mysqlConf.tableName}"
-                    sqlContext.sparkContext.setJobDescription(s"$mySqlTableName => $redshiftTableName")
+                    val context = getTimerMetrics(s"$metricName.loadMetrics")
+                    // Loading table
                     val loadedTable: (DataFrame, TableDetails) = MySQLToRedshiftMigrator.loadToSpark(configuration.mysqlConf,
                         sqlContext, configuration.internalConfig)
-                    if (loadedTable._1 != null) {
-                        MySQLToRedshiftMigrator.storeToRedshift(loadedTable._1, loadedTable._2, configuration.redshiftConf,
-                            configuration.s3Conf, sqlContext, configuration.internalConfig)
-                    }
+                    // For stopping lazy evaluation
+                    loadedTable._1.count()
+                    val loadTime: Long = TimeUnit.NANOSECONDS.toMillis(context.stop())
+
+                    val storeTime: Long =
+                        if (loadedTable._1 != null) {
+                            // Storing table to redshift
+                            val context = getTimerMetrics(s"$metricName.storeMetrics")
+                            MySQLToRedshiftMigrator.storeToRedshift(loadedTable._1, loadedTable._2,
+                                configuration.redshiftConf, configuration.s3Conf, sqlContext,
+                                configuration.internalConfig)
+                            TimeUnit.NANOSECONDS.toMillis(context.stop())
+                        } else 0
+
                     logger.info("Successful transfer for configuration\n{}", configuration.toString)
                     configuration.status = Some(Status(isSuccessful = true, null))
+                    configuration.migrationTime = Some(MigrationTime(loadTime = loadTime, storeTime = storeTime))
+                    registerGauge(metricName = s"$metricName.migrationSuccess", value = 1)
                 } catch {
                     case e: Exception =>
                         logger.info("Transfer Failed for configuration: \n{}", configuration)
                         logger.error("Stack Trace: ", e.fillInStackTrace())
                         configuration.status = Some(Status(isSuccessful = false, e))
+                        configuration.migrationTime = Some(MigrationTime(loadTime = 0, storeTime = 0))
+                        incCounter(metricName = s"$metricName.migrationFailedRetries")
                 }
             }
         }
     }
 
     private def rerun(sqlContext: SQLContext, configurations: Seq[AppConfiguration], retryCount: Int): Unit = {
+        val counter: Counter = metricRegistry.counter("NumberOFFailedTables")
         var retryCnt: Int = retryCount
         var failedConfigurations: Seq[AppConfiguration] = null
         while (retryCnt > 0) {
             logger.info("Retrying with retry count: {}", retryCnt)
             failedConfigurations = Seq()
             for (configuration <- configurations) {
-                if (configuration.status.isDefined && !configuration.status.get.isSuccessful &&
-                        configuration.status.get.e.getMessage.contains("VACUUM is running")) {
+                if (configuration.status.isDefined && !configuration.status.get.isSuccessful) {
+                    val metricName = s"${configuration.mysqlConf.db}.${configuration.mysqlConf.tableName}." +
+                            s"${configuration.redshiftConf.schema}"
+                    incCounter(s"$metricName.migrationFailedRetries")
                     failedConfigurations = failedConfigurations :+ configuration
                 }
             }
@@ -97,9 +144,21 @@ object Main {
             } else {
                 run(sqlContext, failedConfigurations, isRetry = true)
             }
+            counter.inc(failedConfigurations.size.toLong)
             retryCnt -= 1
         }
         logger.info("Some failed tables are still left")
+    }
+
+    private def startMetrics(appParams: AppParams): Unit = {
+        // Start metrics reporter
+        if (appParams.logMetricsReporting) {
+            startSLF4JReporting(appParams.metricsWindowSize)
+        }
+
+        if (appParams.jmxMetricsReporting) {
+            startJMXReporting()
+        }
     }
 
     def main(args: Array[String]): Unit = {
@@ -109,6 +168,9 @@ object Main {
             logger.error("Table details json file is not provided!!!")
             throw new NullPointerException("Table details json file is not provided!!!")
         }
+
+        // Start recording metrics
+        startMetrics(appParams)
 
         val (_, sqlContext) = Util.getSparkContext
 
@@ -122,7 +184,11 @@ object Main {
             logger.info("Found failed transfers with retry count: {}", appParams.retryCount)
             rerun(sqlContext, configurations, retryCount = appParams.retryCount)
         }
-        sqlContext.sparkContext.stop
+
+        //Closing Spark Context
+        Util.closeSparkContext(sqlContext.sparkContext)
+        logger.info("Info Section: \n{}", Util.formattedInfoSection(configurations))
+
         if (appParams.mailDetailsPath == null) {
             logger.info("Mail details properties file is not provided!!!")
             logger.info("Disabling alerting")
@@ -130,13 +196,11 @@ object Main {
             logger.info("Alerting developers....")
             val prop: Properties = new Properties()
             prop.load(new File(appParams.mailDetailsPath).toURI.toURL.openStream())
-            val mailParams: MailParams = MailParams(prop.getProperty("alert.host"),
-                null,
-                prop.getProperty("alert.to", ""),
-                prop.getProperty("alert.cc", ""),
-                prop.getProperty("alert.subject", ""))
-            new MailUtil(mailParams).send(configurations.toList)
+            // Sending mail
+            new MailAPI(MailUtil.getMailParams(prop)).send(configurations.toList)
         }
-        logger.info("Info Section: \n{}", Util.formattedInfoSection(configurations))
+
+        // For collecting metrics for last table
+        Thread.sleep(appParams.metricsWindowSize * 1000)
     }
 }
