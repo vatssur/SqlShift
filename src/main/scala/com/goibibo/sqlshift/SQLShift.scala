@@ -10,7 +10,7 @@ import com.goibibo.sqlshift.commons.MetricsWrapper._
 import com.goibibo.sqlshift.commons.{MySQLToRedshiftMigrator, Util}
 import com.goibibo.sqlshift.models.Configurations.AppConfiguration
 import com.goibibo.sqlshift.models.InternalConfs.{MigrationTime, TableDetails}
-import com.goibibo.sqlshift.models.Params.{AppParams, MailParams}
+import com.goibibo.sqlshift.models.Params.AppParams
 import com.goibibo.sqlshift.models.Status
 import org.apache.spark.sql.{DataFrame, SQLContext}
 import org.slf4j.{Logger, LoggerFactory}
@@ -22,8 +22,8 @@ import scopt.OptionParser
 object SQLShift {
     private val logger: Logger = LoggerFactory.getLogger(SQLShift.getClass)
     private val parser: OptionParser[AppParams] =
-        new OptionParser[AppParams]("Main") {
-            head("RDS to Redshift DataPipeline")
+        new OptionParser[AppParams]("SQLShift") {
+            head("MySQL to Redshift DataPipeline")
             opt[String]("table-details")
                     .abbr("td")
                     .text("Table details json file path including")
@@ -75,7 +75,6 @@ object SQLShift {
 
     private def run(sqlContext: SQLContext, configurations: Seq[AppConfiguration], isRetry: Boolean): Unit = {
         implicit val crashOnInvalidValue: Boolean = true
-        incCounter("NumberOFTables",configurations.size.toLong)
 
         for (configuration <- configurations) {
             if (!isRetry && configuration.status.isDefined && !configuration.status.get.isSuccessful) {
@@ -117,24 +116,22 @@ object SQLShift {
                         logger.error("Stack Trace: ", e.fillInStackTrace())
                         configuration.status = Some(Status(isSuccessful = false, e))
                         configuration.migrationTime = Some(MigrationTime(loadTime = 0, storeTime = 0))
-                        incCounter(metricName = s"$metricName.migrationFailedRetries")
+                        incCounter(s"$metricName.migrationFailedRetries")
                 }
             }
         }
     }
 
     private def rerun(sqlContext: SQLContext, configurations: Seq[AppConfiguration], retryCount: Int): Unit = {
-        val counter: Counter = metricRegistry.counter("NumberOFFailedTables")
-        var retryCnt: Int = retryCount
         var failedConfigurations: Seq[AppConfiguration] = null
-        while (retryCnt > 0) {
-            logger.info("Retrying with retry count: {}", retryCnt)
+        (1 to retryCount).foreach { retryCnt =>
+            Util.exponentialPause(retryCnt)
+            logger.info("Retry count: {}", retryCnt)
             failedConfigurations = Seq()
             for (configuration <- configurations) {
                 if (configuration.status.isDefined && !configuration.status.get.isSuccessful) {
                     val metricName = s"${configuration.mysqlConf.db}.${configuration.mysqlConf.tableName}." +
                             s"${configuration.redshiftConf.schema}"
-                    incCounter(s"$metricName.migrationFailedRetries")
                     failedConfigurations = failedConfigurations :+ configuration
                 }
             }
@@ -144,8 +141,7 @@ object SQLShift {
             } else {
                 run(sqlContext, failedConfigurations, isRetry = true)
             }
-            counter.inc(failedConfigurations.size.toLong)
-            retryCnt -= 1
+            incCounter(s"$retryCnt.FailedTransferRetry", failedConfigurations.size.toLong)
         }
         logger.info("Some failed tables are still left")
     }
@@ -179,6 +175,7 @@ object SQLShift {
 
         logger.info("Total number of tables to transfer are : {}", configurations.length)
 
+        incCounter("NumberOFTables", configurations.size.toLong)
         run(sqlContext, configurations, isRetry = false)
         if (appParams.retryCount > 0 && Util.anyFailures(configurations)) {
             logger.info("Found failed transfers with retry count: {}", appParams.retryCount)
@@ -197,7 +194,11 @@ object SQLShift {
             val prop: Properties = new Properties()
             prop.load(new File(appParams.mailDetailsPath).toURI.toURL.openStream())
             // Sending mail
-            new MailAPI(MailUtil.getMailParams(prop)).send(configurations.toList)
+            try {
+                new MailAPI(MailUtil.getMailParams(prop)).send(configurations.toList)
+            } catch {
+                case e:Exception => logger.warn("Failed to send mail with reason: {}", e.getStackTrace.mkString("\n"))
+            }
         }
 
         // For collecting metrics for last table

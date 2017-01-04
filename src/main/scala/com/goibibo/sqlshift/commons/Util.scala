@@ -56,11 +56,13 @@ object Util {
                 s"'${mysqlDBConf.db}' AND table_name = '${mysqlDBConf.tableName}'"
         val connection = RedshiftUtil.getConnection(mysqlDBConf)
         val result: ResultSet = connection.createStatement().executeQuery(query)
-        result.next()
-        val avgRowSize: Long = result.getLong(1)
-        result.close()
-        connection.close()
-        avgRowSize
+        try {
+            result.next()
+            result.getLong(1)
+        } finally {
+            result.close()
+            connection.close()
+        }
     }
 
 
@@ -80,13 +82,16 @@ object Util {
         }
         logger.info("Running Query: \n{}", query)
         val result: ResultSet = connection.createStatement().executeQuery(query)
-        result.next()
-        val min: Long = result.getLong(1)
-        val max: Long = result.getLong(2)
-        logger.info(s"Minimum $distKey: $min :: Maximum $distKey: $max")
-        result.close()
-        connection.close()
-        (min, max)
+        try {
+            result.next()
+            val min: Long = result.getLong(1)
+            val max: Long = result.getLong(2)
+            logger.info(s"Minimum $distKey: $min :: Maximum $distKey: $max")
+            (min, max)
+        } finally {
+            result.close()
+            connection.close()
+        }
     }
 
     /**
@@ -270,5 +275,21 @@ object Util {
             sno += 1
         }
         formattedString
+    }
+
+    /**
+      * Pause the application for 2 ^^ MIN(retryCount, 9) - 1 seconds
+      *
+      * @param retryCount retry count
+      * @return
+      */
+    def exponentialPause(retryCount: Int): Unit = {
+        val MAX_RETRIES_COUNT: Long = 9
+        val exponent: Long = if (retryCount > MAX_RETRIES_COUNT)
+            MAX_RETRIES_COUNT
+        else retryCount
+        val timeToSleep = Math.pow(2, exponent).toLong - 1
+        logger.info(s"Pausing for $timeToSleep seconds")
+        Thread.sleep(timeToSleep * 1000)
     }
 }

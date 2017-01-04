@@ -3,10 +3,10 @@
     "mysql":
     {
         "db": "",
-        hostname: "",
-        portNo: "",
-        userName: "",
-        password: ""
+        "hostname": "",
+        "portNo": "",
+        "userName": "",
+        "password": ""
     },
      "tables": [
      {

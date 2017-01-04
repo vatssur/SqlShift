@@ -51,14 +51,19 @@ object RedshiftUtil {
         val query = s"SELECT * FROM ${dbConf.schema}.${dbConf.tableName} WHERE 1 < 0;"
         val connection = RedshiftUtil.getConnection(dbConf)
         val result: ResultSet = connection.createStatement().executeQuery(query)
-        val resultSetMetaData = result.getMetaData
-        val count = resultSetMetaData.getColumnCount
+        try {
+            val resultSetMetaData = result.getMetaData
+            val count = resultSetMetaData.getColumnCount
 
-        val columnMap = (1 to count).foldLeft(Map[String, String]()) { (set, i) =>
+            val columnMap = (1 to count).foldLeft(Map[String, String]()) { (set, i) =>
 
-            set + (resultSetMetaData.getColumnName(i).toLowerCase -> resultSetMetaData.getColumnTypeName(i))
+                set + (resultSetMetaData.getColumnName(i).toLowerCase -> resultSetMetaData.getColumnTypeName(i))
+            }
+            columnMap
+        } finally {
+            result.close()
+            connection.close()
         }
-        columnMap
     }
 
     def getVacuumString(shallVacuumAfterLoad: Boolean, redshiftConf: DBConfiguration): String = {
@@ -70,7 +75,7 @@ object RedshiftUtil {
     def performVacuum(conf: DBConfiguration): Unit = {
         logger.info("Initiating the connection for vacuum")
         val con = getConnection(conf)
-        logger.info("creating statement for Connection")
+        logger.info("Creating statement for Connection")
         val stmt = con.createStatement()
         val vacuumString = getVacuumString(shallVacuumAfterLoad = true, conf)
         logger.info("Running command {}", vacuumString)

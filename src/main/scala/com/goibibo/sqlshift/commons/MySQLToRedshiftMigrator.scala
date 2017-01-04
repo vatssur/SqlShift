@@ -167,7 +167,7 @@ object MySQLToRedshiftMigrator {
             case None =>
                 logger.info("No dropStagingTableString and No vacuum, internalConfig.incrementalSettings is None")
                 ("", "", false)
-            case Some(IncrementalSettings(whereCondition, shallMerge, stagingTableMergeKey, shallVaccumAfterLoad, cs)) =>
+            case Some(IncrementalSettings(whereCondition, shallMerge, stagingTableMergeKey, vaccumAfterLoad, cs)) =>
                 val dropStatingTableStr = if (shallMerge) s"DROP TABLE IF EXISTS $redshiftStagingTableName;" else ""
                 logger.info(s"dropStatingTableStr = {}", dropStatingTableStr)
                 val mKey: String = {
@@ -188,7 +188,7 @@ object MySQLToRedshiftMigrator {
                         ""
                     }
                 }
-                (dropStatingTableStr, mKey, shallVaccumAfterLoad)
+                (dropStatingTableStr, mKey, vaccumAfterLoad)
         }
 
         val preActions: String = dropAndCreateTableString +
@@ -269,10 +269,14 @@ object MySQLToRedshiftMigrator {
         }
 
         redshiftWriterWithPostActions.save()
-        if (shallVaccumAfterLoad) {
-            RedshiftUtil.performVacuum(redshiftConf)
-        } else {
-            logger.info("Not opting for Vacuum, shallVacuumAfterLoad is false")
+        try {
+            if (shallVaccumAfterLoad) {
+                RedshiftUtil.performVacuum(redshiftConf)
+            } else {
+                logger.info("Not opting for Vacuum, shallVacuumAfterLoad is false")
+            }
+        } catch {
+            case e: Exception => logger.warn("Vacuum failed for reason: {}", e.getStackTrace.mkString("\n"))
         }
     }
 
