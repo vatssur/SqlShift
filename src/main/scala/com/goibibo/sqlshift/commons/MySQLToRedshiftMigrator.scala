@@ -296,7 +296,7 @@ object MySQLToRedshiftMigrator {
             // All columns name must be distinct other wise redshift load will fail
             val stagingTableColumnAndTypes: Map[String, String] = tableDetails
                     .validFields
-                    .map { td => td.fieldName -> td.fieldType }
+                    .map { td => td.fieldName.toLowerCase -> td.fieldType }
                     .toMap
 
             val stagingTableColumnNames: Set[String] = stagingTableColumnAndTypes.keys.toSet
