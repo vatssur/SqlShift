@@ -198,7 +198,7 @@ object MySQLToRedshiftMigrator {
                 else "")
 
         val postActions: String = if (dropStagingTableString != "") {
-            val tableColumns = tableDetails.validFields.map(_.fieldName).mkString(", ")
+            val tableColumns = "\"" + tableDetails.validFields.map(_.fieldName).mkString("\", \"") + "\""
 
             s"""DELETE FROM $redshiftTableName USING $redshiftStagingTableName
                |    WHERE $redshiftTableName.$mergeKey = $redshiftStagingTableName.$mergeKey; """.stripMargin + "\n" +
@@ -216,7 +216,7 @@ object MySQLToRedshiftMigrator {
                                 customFields += matched
                                 logger.info("matched => {}", matched)
                             }
-                            val customFieldsStr = customFields.mkString(",")
+                            val customFieldsStr = "\"" + customFields.mkString("\", \"") + "\""
                             val customColumns = if (customFields.nonEmpty) s"( $tableColumns, $customFieldsStr )" else ""
                             logger.info("customColumns => {}", customColumns)
                             s"""INSERT INTO $redshiftTableName $customColumns
@@ -304,12 +304,12 @@ object MySQLToRedshiftMigrator {
             val deletedColumns: Set[String] = mainTableColumnNames -- stagingTableColumnNames
 
             val addColumnsQuery = addedColumns.foldLeft("\n") { (query, columnName) =>
-                query + s"ALTER TABLE $redshiftTableName ADD COLUMN " + columnName + " " +
+                query + s"""ALTER TABLE $redshiftTableName ADD COLUMN "$columnName" """ +
                         stagingTableColumnAndTypes.getOrElse(columnName, "") + ";\n"
             }
 
             val deleteColumnQuery = deletedColumns.foldLeft("\n") { (query, columnName) =>
-                query + s"ALTER TABLE $redshiftTableName DROP COLUMN " + columnName + ";\n"
+                query + s"""ALTER TABLE $redshiftTableName DROP COLUMN "$columnName" ;\n"""
             }
 
             addColumnsQuery + deleteColumnQuery
