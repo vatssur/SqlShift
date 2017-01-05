@@ -4,7 +4,6 @@ import java.io.File
 import java.util.Properties
 import java.util.concurrent.TimeUnit
 
-import com.codahale.metrics._
 import com.goibibo.sqlshift.alerting.{MailAPI, MailUtil}
 import com.goibibo.sqlshift.commons.MetricsWrapper._
 import com.goibibo.sqlshift.commons.{MySQLToRedshiftMigrator, Util}
@@ -197,7 +196,7 @@ object SQLShift {
             try {
                 new MailAPI(MailUtil.getMailParams(prop)).send(configurations.toList)
             } catch {
-                case e:Exception => logger.warn("Failed to send mail with reason: {}", e.getStackTrace.mkString("\n"))
+                case e: Exception => logger.warn("Failed to send mail with reason: {}", e.getStackTrace.mkString("\n"))
             }
         }
 
