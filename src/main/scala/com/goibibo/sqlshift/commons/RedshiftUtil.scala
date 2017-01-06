@@ -275,7 +275,7 @@ object RedshiftUtil {
             "ENUM" -> RedshiftType("VARCHAR(255)"),
             "SET" -> RedshiftType("VARCHAR(255)"),
             "DATE" -> RedshiftType("DATE"),
-            "TIME" -> RedshiftType("VARCHAR(11)"),
+            "TIME" -> RedshiftType("TIMESTAMP"),
             "DATETIME" -> RedshiftType("TIMESTAMP"),
             "TIMESTAMP" -> RedshiftType("TIMESTAMP"),
             "YEAR" -> RedshiftType("INT")
