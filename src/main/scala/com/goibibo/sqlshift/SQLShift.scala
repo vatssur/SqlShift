@@ -12,6 +12,7 @@ import com.goibibo.sqlshift.models.InternalConfs.{MigrationTime, TableDetails}
 import com.goibibo.sqlshift.models.Params.AppParams
 import com.goibibo.sqlshift.models.Status
 import org.apache.spark.sql.{DataFrame, SQLContext}
+import org.apache.spark.storage.StorageLevel
 import org.slf4j.{Logger, LoggerFactory}
 import scopt.OptionParser
 
@@ -91,15 +92,16 @@ object SQLShift {
                     // Loading table
                     val loadedTable: (DataFrame, TableDetails) = MySQLToRedshiftMigrator.loadToSpark(configuration.mysqlConf,
                         sqlContext, configuration.internalConfig)
+                    val df = loadedTable._1.persist(StorageLevel.DISK_ONLY)
                     // For stopping lazy evaluation
-                    loadedTable._1.count()
+                    df.count()
                     val loadTime: Long = TimeUnit.NANOSECONDS.toMillis(context.stop())
 
                     val storeTime: Long =
                         if (loadedTable._1 != null) {
                             // Storing table to redshift
                             val context = getTimerMetrics(s"$metricName.storeMetrics")
-                            MySQLToRedshiftMigrator.storeToRedshift(loadedTable._1, loadedTable._2,
+                            MySQLToRedshiftMigrator.storeToRedshift(df, loadedTable._2,
                                 configuration.redshiftConf, configuration.s3Conf, sqlContext,
                                 configuration.internalConfig)
                             TimeUnit.NANOSECONDS.toMillis(context.stop())
