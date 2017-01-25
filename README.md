@@ -68,8 +68,8 @@ Usage: SQLShift [options]
     {
         "db": "",
         "hostname": "",
-        "portNo": "",
-        "userName": "",
+        "portno": "",
+        "username": "",
         "password": ""
     },
      "tables": [
@@ -86,8 +86,8 @@ Usage: SQLShift [options]
     {
         "schema": "",
         "hostname": "",
-        "portNo": "",
-        "userName": "",
+        "portno": "",
+        "username": "",
         "password": ""
     },
     "s3":
