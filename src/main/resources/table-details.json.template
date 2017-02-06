@@ -4,8 +4,8 @@
     {
         "db": "",
         "hostname": "",
-        "portNo": "",
-        "userName": "",
+        "portno": "",
+        "username": "",
         "password": ""
     },
      "tables": [
@@ -22,8 +22,8 @@
     {
         "schema": "",
         "hostname": "",
-        "portNo": "",
-        "userName": "",
+        "portno": "",
+        "username": "",
         "password": ""
     },
     "s3":

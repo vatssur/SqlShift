@@ -69,11 +69,11 @@ private[sqlshift] object InternalConfs {
                               mapPartitions: Option[Int] = None,
                               reducePartitions: Option[Int] = None) extends InternalConf
 
-    case class MigrationTime(loadTime: Long,
-                             storeTime: Long) {
+    case class MigrationTime(loadTime: Double,
+                             storeTime: Double) {
 
         override def toString: String = {
-            s"""{ LoadTime: $loadTime ms, StoreTime: $storeTime ms}"""
+            s"""{ LoadTime: $loadTime sec, StoreTime: $storeTime sec}"""
         }
     }
 

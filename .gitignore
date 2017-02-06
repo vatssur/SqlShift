@@ -18,3 +18,4 @@ project/plugins/project/
 .idea/
 src/main/resources/tableDetails.json
 src/main/resources/schedule.sh
+metastore_db/
