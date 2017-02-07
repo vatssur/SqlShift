@@ -39,8 +39,8 @@ private[sqlshift] object Configurations {
                                 redshiftConf: DBConfiguration,
                                 s3Conf: S3Config,
                                 internalConfig: InternalConfig,
-                                var status: Option[Status] = None,
-                                var migrationTime: Option[MigrationTime]= None) {
+                                status: Option[Status] = None,
+                                migrationTime: Option[MigrationTime]= None) {
 
         override def toString: String = {
             val mysqlString: String = "\tmysql-db : " + mysqlConf.db + "\n\tmysql-table : " + mysqlConf.tableName

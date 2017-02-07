@@ -1,6 +1,6 @@
 package com.goibibo.sqlshift
 
-import java.io.File
+import java.io.{File, PrintWriter}
 import java.util.Properties
 import java.util.concurrent.TimeUnit
 
@@ -46,7 +46,7 @@ object SQLShift {
 
             opt[Int]("retry-count")
                     .abbr("rc")
-                    .text("How many times to retry on failed transfers")
+                    .text("How many times to retry on failed transfers(Count should be less than equal to 9)")
                     .optional()
                     .valueName("<count>")
                     .action((x, c) => c.copy(retryCount = x))
@@ -73,78 +73,83 @@ object SQLShift {
                     .text("Usage Of arguments")
         }
 
-    private def run(sqlContext: SQLContext, configurations: Seq[AppConfiguration], isRetry: Boolean): Unit = {
+    /**
+      * Transfer tables provided in configurations and return list of configurations with status and transfer time.
+      *
+      * @param sqlContext     Spark sql context
+      * @param configurations List of configurations which needs to be executed
+      * @return List of configurations with status and transfer time.
+      */
+    def run(sqlContext: SQLContext, configurations: Seq[AppConfiguration]): Seq[AppConfiguration] = {
         implicit val crashOnInvalidValue: Boolean = true
+        var finalConfigurations: Seq[AppConfiguration] = Seq[AppConfiguration]()
 
         for (configuration <- configurations) {
-            if (!isRetry && configuration.status.isDefined && !configuration.status.get.isSuccessful) {
-                val e: Exception = configuration.status.get.e
-                logger.warn(s"Skipping configuration: ${configuration.toString} " +
-                        s"with reason: ${e.getMessage}\n${e.getStackTraceString}")
-            } else {
-                logger.info("Configuration: \n{}", configuration.toString)
-                val mySqlTableName = s"${configuration.mysqlConf.db}.${configuration.mysqlConf.tableName}"
-                val redshiftTableName = s"${configuration.redshiftConf.schema}.${configuration.mysqlConf.tableName}"
-                sqlContext.sparkContext.setJobDescription(s"$mySqlTableName => $redshiftTableName")
-                val metricName = mySqlTableName + s".${configuration.redshiftConf.schema}"
-                try {
-                    val context = getTimerMetrics(s"$metricName.loadMetrics")
-                    // Loading table
-                    val loadedTable: (DataFrame, TableDetails) = MySQLToRedshiftMigrator.loadToSpark(configuration.mysqlConf,
-                        sqlContext, configuration.internalConfig)
-                    val df = loadedTable._1.persist(StorageLevel.DISK_ONLY)
-                    // For stopping lazy evaluation
-                    df.count()
-                    val loadTime: Long = TimeUnit.NANOSECONDS.toMillis(context.stop())
+            logger.info("Configuration: \n{}", configuration.toString)
+            val mySqlTableName = s"${configuration.mysqlConf.db}.${configuration.mysqlConf.tableName}"
+            val redshiftTableName = s"${configuration.redshiftConf.schema}.${configuration.mysqlConf.tableName}"
+            sqlContext.sparkContext.setJobDescription(s"$mySqlTableName => $redshiftTableName")
+            val metricName = mySqlTableName + s".${configuration.redshiftConf.schema}"
+            try {
+                val context = getTimerMetrics(s"$metricName.loadMetrics")
+                // Loading table
+                val loadedTable: (DataFrame, TableDetails) = MySQLToRedshiftMigrator.loadToSpark(configuration.mysqlConf,
+                    sqlContext, configuration.internalConfig)
+                val df = loadedTable._1.persist(StorageLevel.DISK_ONLY)
+                // For stopping lazy evaluation
+                df.count()
+                val loadTime: Double = TimeUnit.NANOSECONDS.toMillis(context.stop()) / 1000.0
 
-                    val storeTime: Long =
-                        if (loadedTable._1 != null) {
-                            // Storing table to redshift
-                            val context = getTimerMetrics(s"$metricName.storeMetrics")
-                            MySQLToRedshiftMigrator.storeToRedshift(df, loadedTable._2,
-                                configuration.redshiftConf, configuration.s3Conf, sqlContext,
-                                configuration.internalConfig)
-                            TimeUnit.NANOSECONDS.toMillis(context.stop())
-                        } else 0
+                val storeTime: Double =
+                    if (loadedTable._1 != null) {
+                        // Storing table to redshift
+                        val context = getTimerMetrics(s"$metricName.storeMetrics")
+                        MySQLToRedshiftMigrator.storeToRedshift(df, loadedTable._2,
+                            configuration.redshiftConf, configuration.s3Conf, sqlContext,
+                            configuration.internalConfig)
+                        TimeUnit.NANOSECONDS.toMillis(context.stop()) / 1000.0
+                    } else 0.0
 
-                    logger.info("Successful transfer for configuration\n{}", configuration.toString)
-                    configuration.status = Some(Status(isSuccessful = true, null))
-                    configuration.migrationTime = Some(MigrationTime(loadTime = loadTime, storeTime = storeTime))
-                    registerGauge(metricName = s"$metricName.migrationSuccess", value = 1)
-                } catch {
-                    case e: Exception =>
-                        logger.info("Transfer Failed for configuration: \n{}", configuration)
-                        logger.error("Stack Trace: ", e.fillInStackTrace())
-                        configuration.status = Some(Status(isSuccessful = false, e))
-                        configuration.migrationTime = Some(MigrationTime(loadTime = 0, storeTime = 0))
-                        incCounter(s"$metricName.migrationFailedRetries")
-                }
+                logger.info("Successful transfer for configuration\n{}", configuration.toString)
+                finalConfigurations :+= configuration.copy(status = Some(Status(isSuccessful = true, null)),
+                    migrationTime = Some(MigrationTime(loadTime = loadTime, storeTime = storeTime)))
+                registerGauge(metricName = s"$metricName.migrationSuccess", value = 1)
+            } catch {
+                case e: Exception =>
+                    logger.info("Transfer Failed for configuration: \n{}", configuration)
+                    logger.error("Stack Trace: ", e.fillInStackTrace())
+                    finalConfigurations :+= configuration.copy(status = Some(Status(isSuccessful = false, e)),
+                        migrationTime = Some(MigrationTime(loadTime = 0.0, storeTime = 0.0)))
+                    incCounter(s"$metricName.migrationFailedRetries")
             }
         }
+        finalConfigurations
     }
 
-    private def rerun(sqlContext: SQLContext, configurations: Seq[AppConfiguration], retryCount: Int): Unit = {
-        var failedConfigurations: Seq[AppConfiguration] = null
-        (1 to retryCount).foreach { retryCnt =>
-            Util.exponentialPause(retryCnt)
-            logger.info("Retry count: {}", retryCnt)
-            failedConfigurations = Seq()
-            for (configuration <- configurations) {
-                if (configuration.status.isDefined && !configuration.status.get.isSuccessful) {
-                    val metricName = s"${configuration.mysqlConf.db}.${configuration.mysqlConf.tableName}." +
-                            s"${configuration.redshiftConf.schema}"
-                    failedConfigurations = failedConfigurations :+ configuration
-                }
-            }
-            if (failedConfigurations.isEmpty) {
-                logger.info("All failed tables are successfully transferred due to VACUUM")
-                return
+    /**
+      * Start table transfers from source to destination(Redshift).
+      *
+      * @param sqlContext     Spark SQL Context
+      * @param configurations List of configurations which needs to be executed
+      * @param retryCount     Number of retries
+      * @return List of configurations with status and transfer time.
+      */
+    private def start(sqlContext: SQLContext, configurations: Seq[AppConfiguration], retryCount: Int): Seq[AppConfiguration] = {
+        var finalConfiguration = run(sqlContext, configurations)
+        (1 to retryCount).foreach { count =>
+            if (!Util.anyFailures(finalConfiguration)) {
+                logger.info("All failed tables are successfully transferred!!!")
+                return finalConfiguration
             } else {
-                run(sqlContext, failedConfigurations, isRetry = true)
+                logger.info("Retrying with count: {}", count)
+                Util.exponentialPause(count)
+                val fAndS = Util.failedAndSuccessConfigurations(finalConfiguration)
+                val rerunConfigurations = run(sqlContext, fAndS._1)
+                finalConfiguration = fAndS._2 ++  rerunConfigurations
             }
-            incCounter(s"$retryCnt.FailedTransferRetry", failedConfigurations.size.toLong)
+            incCounter(s"$count.FailedTransferRetry", Util.failedAndSuccessConfigurations(finalConfiguration)._1.size.toLong)
         }
-        logger.info("Some failed tables are still left")
+        finalConfiguration
     }
 
     private def startMetrics(appParams: AppParams): Unit = {
@@ -177,26 +182,31 @@ object SQLShift {
         logger.info("Total number of tables to transfer are : {}", configurations.length)
 
         incCounter("NumberOFTables", configurations.size.toLong)
-        run(sqlContext, configurations, isRetry = false)
-        if (appParams.retryCount > 0 && Util.anyFailures(configurations)) {
-            logger.info("Found failed transfers with retry count: {}", appParams.retryCount)
-            rerun(sqlContext, configurations, retryCount = appParams.retryCount)
+        val finalConfigurations = start(sqlContext, configurations, retryCount = appParams.retryCount)
+        if (Util.anyFailures(finalConfigurations)) {
+            val failedConfigurations = Util.failedAndSuccessConfigurations(finalConfigurations)._1
+            logger.info("Failed transfers: {}", failedConfigurations.size)
+             val configurationString = Util.createJsonConfiguration(failedConfigurations)
+             new PrintWriter("failed.json") {
+                 write(configurationString)
+                 close()
+             }
         }
 
         //Closing Spark Context
         Util.closeSparkContext(sqlContext.sparkContext)
-        logger.info("Info Section: \n{}", Util.formattedInfoSection(configurations))
+        logger.info("Info Section: \n{}", Util.formattedInfoSection(finalConfigurations))
 
         if (appParams.mailDetailsPath == null) {
             logger.info("Mail details properties file is not provided!!!")
             logger.info("Disabling alerting")
-        } else if (!appParams.alertOnFailure || Util.anyFailures(configurations)) {
+        } else if (!appParams.alertOnFailure || Util.anyFailures(finalConfigurations)) {
             logger.info("Alerting developers....")
             val prop: Properties = new Properties()
             prop.load(new File(appParams.mailDetailsPath).toURI.toURL.openStream())
             // Sending mail
             try {
-                new MailAPI(MailUtil.getMailParams(prop)).send(configurations.toList)
+                new MailAPI(MailUtil.getMailParams(prop)).send(finalConfigurations.toList)
             } catch {
                 case e: Exception => logger.warn("Failed to send mail with reason: {}", e.getStackTrace.mkString("\n"))
             }

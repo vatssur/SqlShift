@@ -238,7 +238,7 @@ object Util {
                         configuration = getAppConfiguration(mysqlConf, redshiftConf, s3Conf, table)
                     } catch {
                         case e: Exception =>
-                            configuration.status = Some(Status(isSuccessful = false, e))
+                            configuration = configuration.copy(status = Some(Status(isSuccessful = false, e)))
                     }
                     configurations = configurations :+ configuration
                     logger.info("\n------------- End :: table: {} -------------", (table \ "name").extract[String])
@@ -250,16 +250,110 @@ object Util {
         configurations
     }
 
-    def anyFailures(appConfigurations: Seq[AppConfiguration]): Boolean = {
-        for (appConfiguration <- appConfigurations) {
-            if (appConfiguration.status.isEmpty || !appConfiguration.status.get.isSuccessful)
-                return true
+    def createJsonConfiguration(appConfigurations: Seq[AppConfiguration]): String = {
+        "[\n" + appConfigurations.map { (configuration: AppConfiguration) =>
+            createJsonConfiguration(configuration)
+        }.mkString(",\n") +
+        "]"
+    }
+    def createJsonConfiguration(appConfiguration: AppConfiguration): String = {
+        val mysqlConf = appConfiguration.mysqlConf
+        val mySQLConfJson =
+            s""""mysql": {
+               | "db": "${mysqlConf.db}",
+               | "hostname": "${mysqlConf.hostname}",
+               | "portno": ${mysqlConf.portNo},
+               | "username": "${mysqlConf.userName}",
+               | "password": "${mysqlConf.password}"
+               | }""".stripMargin
+
+        val redshiftConf = appConfiguration.redshiftConf
+        val redshiftConfJson =
+            s""""redshift": {
+               | "schema": "${redshiftConf.schema}",
+               | "hostname": "${redshiftConf.hostname}",
+               | "portno": ${redshiftConf.portNo},
+               | "username": "${redshiftConf.userName}",
+               | "password": "${redshiftConf.password}"
+               | }""".stripMargin
+
+        val s3Conf = appConfiguration.s3Conf
+        val s3ConfJson =
+            s""""s3": {
+               | "location": "${s3Conf.s3Location}",
+               | "accessKey": "${s3Conf.accessKey}",
+               | "secretKey": "${s3Conf.secretKey}"
+               | }""".stripMargin
+
+        val internalConf = appConfiguration.internalConfig
+        var tableConfJson =
+            s""""tables": [
+               | {
+               |     "name": "${mysqlConf.tableName}"""".stripMargin
+
+        val incrementalSettings = internalConf.incrementalSettings
+        if (incrementalSettings.isDefined) {
+            tableConfJson +=
+                    s""",
+                       |     "incremental": "${incrementalSettings.get.whereCondition}"""".stripMargin
+            if (incrementalSettings.get.mergeKey.isDefined)
+                tableConfJson +=
+                        s""",
+                           |     "mergeKey": "${incrementalSettings.get.mergeKey}"""".stripMargin
+            if (incrementalSettings.get.customSelectFromStaging.isDefined)
+                tableConfJson +=
+                        s""",
+                           |     "addColumn": "${incrementalSettings.get.customSelectFromStaging}"""".stripMargin
         }
-        false
+
+        if (internalConf.mapPartitions.isDefined)
+            tableConfJson +=
+                    s""",
+                       |     "partitions": ${internalConf.mapPartitions.get}""".stripMargin
+        if (internalConf.shallSplit.isDefined)
+            tableConfJson +=
+                s""",
+                   |     "isSplittable": ${internalConf.shallSplit.get}""".stripMargin
+
+        tableConfJson +=
+            """
+              | }
+              |]""".stripMargin
+        "{\n" + mySQLConfJson + ",\n" + tableConfJson + ",\n" + redshiftConfJson + ",\n" + s3ConfJson + "\n}"
+    }
+
+    /**
+      * Return list of failed and success configurations.
+      *
+      * @param configurations table configurations
+      * @return list of failed and success configurations
+      */
+    def failedAndSuccessConfigurations(configurations: Seq[AppConfiguration]): (Seq[AppConfiguration], Seq[AppConfiguration]) = {
+        var failedConfigurations: Seq[AppConfiguration] = Seq[AppConfiguration]()
+        var successConfigurations: Seq[AppConfiguration] = Seq[AppConfiguration]()
+
+        for (configuration <- configurations) {
+            if (configuration.status.isEmpty || !configuration.status.get.isSuccessful)
+                failedConfigurations :+= configuration
+            else
+                successConfigurations :+= configuration
+        }
+        (failedConfigurations, successConfigurations)
+    }
+
+    /**
+      * True if configurations has atleast one failed configuration otherwise false.
+      *
+      * @param configurations table configurations
+      * @return
+      */
+    def anyFailures(configurations: Seq[AppConfiguration]): Boolean = {
+        failedAndSuccessConfigurations(configurations)._1.nonEmpty
     }
 
     def formattedInfoSection(appConfigurations: Seq[AppConfiguration]): String = {
-        val header = String.format("|%4s| %20s| %40s| %20s| %12s| %8s| %9s|", "SNo", "MySQL DB", "Table Name",
+        val tableSpaceFormatString = "|%4s| %20s| %40s| %20s| %12s| %8s| %9s|"
+        val header = String.format(tableSpaceFormatString, "SNo", "MySQL DB", "Table Name",
             "Redshift Schema", "isSuccessful", "LoadTime", "StoreTime")
 
         var formattedString = "-" * header.length + "\n"
@@ -267,7 +361,7 @@ object Util {
         formattedString += "-" * header.length + "\n"
         var sno = 1
         for (appConf <- appConfigurations) {
-            formattedString += String.format("|%4s| %20s| %40s| %20s| %12s| %8s| %9s|\n", sno.toString,
+            formattedString += String.format(tableSpaceFormatString + "\n", sno.toString,
                 appConf.mysqlConf.db, appConf.mysqlConf.tableName, appConf.redshiftConf.schema,
                 appConf.status.get.isSuccessful.toString, appConf.migrationTime.get.loadTime.toString,
                 appConf.migrationTime.get.storeTime.toString)
@@ -284,10 +378,10 @@ object Util {
       * @return
       */
     def exponentialPause(retryCount: Int): Unit = {
-        val MAX_RETRIES_COUNT: Long = 9
-        val exponent: Long = if (retryCount > MAX_RETRIES_COUNT)
+        val MAX_RETRIES_COUNT: Double = 9.0
+        val exponent: Double = if (retryCount > MAX_RETRIES_COUNT)
             MAX_RETRIES_COUNT
-        else retryCount
+        else retryCount.toDouble
         val timeToSleep = Math.pow(2, exponent).toLong - 1
         logger.info(s"Pausing for $timeToSleep seconds")
         Thread.sleep(timeToSleep * 1000)
