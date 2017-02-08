@@ -59,6 +59,11 @@ object Util {
         try {
             result.next()
             result.getLong(1)
+        } catch {
+            case e: Exception =>
+                logger.error("Failed in finding average row size of table from source")
+                logger.error("Stack Trace: ", e.fillInStackTrace())
+                0
         } finally {
             result.close()
             connection.close()

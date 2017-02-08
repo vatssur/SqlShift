@@ -116,7 +116,7 @@ object SQLShift {
                 registerGauge(metricName = s"$metricName.migrationSuccess", value = 1)
             } catch {
                 case e: Exception =>
-                    logger.info("Transfer Failed for configuration: \n{}", configuration)
+                    logger.error("Transfer Failed for configuration: \n{}", configuration)
                     logger.error("Stack Trace: ", e.fillInStackTrace())
                     finalConfigurations :+= configuration.copy(status = Some(Status(isSuccessful = false, e)),
                         migrationTime = Some(MigrationTime(loadTime = 0.0, storeTime = 0.0)))

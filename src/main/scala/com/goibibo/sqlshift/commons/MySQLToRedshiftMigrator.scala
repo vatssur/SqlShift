@@ -64,15 +64,16 @@ object MySQLToRedshiftMigrator {
                                 case None => Util.getPartitions(sqlContext, mysqlConfig, minMax)
                             }
                             if (mapPartitions == 0) {
-                                return (null, null)
+                                None
+                            } else {
+                                val inc: Long = Math.ceil(nr.toDouble / mapPartitions).toLong
+                                val predicates = (0 until mapPartitions).toList.
+                                        map { n =>
+                                            s"$primaryKey BETWEEN ${minMax._1 + n * inc} AND ${minMax._1 - 1 + (n + 1) * inc} "
+                                        }.
+                                        map(c => if (whereCondition.isDefined) c + s"AND (${whereCondition.get})" else c)
+                                Some(predicates)
                             }
-                            val inc: Long = Math.ceil(nr.toDouble / mapPartitions).toLong
-                            val predicates = (0 until mapPartitions).toList.
-                                    map { n =>
-                                        s"$primaryKey BETWEEN ${minMax._1 + n * inc} AND ${minMax._1 - 1 + (n + 1) * inc} "
-                                    }.
-                                    map(c => if (whereCondition.isDefined) c + s"AND (${whereCondition.get})" else c)
-                            Some(predicates)
                         } else {
                             logger.warn(s"primary keys is non INT $typeOfPrimaryKey")
                             None
