@@ -52,8 +52,7 @@ class MailAPI(mailParams: MailParams) {
                 "<th size=6>Mysql table_name</th>" +
                 "<th size=6>Redshift schema</th>" +
                 "<th size=6>Status</th>" +
-                "<th size=6>Load Time(ms)</th>" +
-                "<th size=6>Store Time(ms)</th>" +
+                "<th size=6>Migration Time(sec)</th>" +
                 "<th size=6>Error</th></tr>"
 
         logger.info(s"Mail to: '${mailParams.to}' and cc: '${mailParams.cc}'")
@@ -71,8 +70,7 @@ class MailAPI(mailParams: MailParams) {
                     "<td bgcolor='#E0FFFF'>" + appConf.mysqlConf.tableName + "</td>" +
                     "<td bgcolor='#F5F5DC'>" + appConf.redshiftConf.schema + "</td>" +
                     "<td bgcolor='#E0FFFF'>" + appConf.status.get.isSuccessful + "</td>" +
-                    "<td bgcolor='#E0FFFF'>" + appConf.migrationTime.get.loadTime + "</td>" +
-                    "<td bgcolor='#E0FFFF'>" + appConf.migrationTime.get.storeTime + "</td>"
+                    "<td bgcolor='#E0FFFF'>" + appConf.migrationTime.get + "</td>"
 
             if (appConf.status.get.isSuccessful) {
                 successCnt += 1

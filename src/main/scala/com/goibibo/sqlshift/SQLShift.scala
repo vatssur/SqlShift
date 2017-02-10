@@ -8,11 +8,10 @@ import com.goibibo.sqlshift.alerting.{MailAPI, MailUtil}
 import com.goibibo.sqlshift.commons.MetricsWrapper._
 import com.goibibo.sqlshift.commons.{MySQLToRedshiftMigrator, Util}
 import com.goibibo.sqlshift.models.Configurations.AppConfiguration
-import com.goibibo.sqlshift.models.InternalConfs.{MigrationTime, TableDetails}
+import com.goibibo.sqlshift.models.InternalConfs.TableDetails
 import com.goibibo.sqlshift.models.Params.AppParams
 import com.goibibo.sqlshift.models.Status
 import org.apache.spark.sql.{DataFrame, SQLContext}
-import org.apache.spark.storage.StorageLevel
 import org.slf4j.{Logger, LoggerFactory}
 import scopt.OptionParser
 
@@ -91,35 +90,28 @@ object SQLShift {
             sqlContext.sparkContext.setJobDescription(s"$mySqlTableName => $redshiftTableName")
             val metricName = mySqlTableName + s".${configuration.redshiftConf.schema}"
             try {
-                val context = getTimerMetrics(s"$metricName.loadMetrics")
+                val context = getTimerMetrics(s"$metricName.migrationMetrics")
                 // Loading table
                 val loadedTable: (DataFrame, TableDetails) = MySQLToRedshiftMigrator.loadToSpark(configuration.mysqlConf,
                     sqlContext, configuration.internalConfig)
-                val df = loadedTable._1.persist(StorageLevel.DISK_ONLY)
-                // For stopping lazy evaluation
-                df.count()
-                val loadTime: Double = TimeUnit.NANOSECONDS.toMillis(context.stop()) / 1000.0
-
-                val storeTime: Double =
                     if (loadedTable._1 != null) {
                         // Storing table to redshift
-                        val context = getTimerMetrics(s"$metricName.storeMetrics")
-                        MySQLToRedshiftMigrator.storeToRedshift(df, loadedTable._2,
+                        MySQLToRedshiftMigrator.storeToRedshift(loadedTable._1, loadedTable._2,
                             configuration.redshiftConf, configuration.s3Conf, sqlContext,
                             configuration.internalConfig)
-                        TimeUnit.NANOSECONDS.toMillis(context.stop()) / 1000.0
-                    } else 0.0
 
+                    }
+                val migrationTime: Double = TimeUnit.NANOSECONDS.toMillis(context.stop()) / 1000.0
                 logger.info("Successful transfer for configuration\n{}", configuration.toString)
                 finalConfigurations :+= configuration.copy(status = Some(Status(isSuccessful = true, null)),
-                    migrationTime = Some(MigrationTime(loadTime = loadTime, storeTime = storeTime)))
+                    migrationTime = Some(migrationTime))
                 registerGauge(metricName = s"$metricName.migrationSuccess", value = 1)
             } catch {
                 case e: Exception =>
                     logger.error("Transfer Failed for configuration: \n{}", configuration)
                     logger.error("Stack Trace: ", e.fillInStackTrace())
                     finalConfigurations :+= configuration.copy(status = Some(Status(isSuccessful = false, e)),
-                        migrationTime = Some(MigrationTime(loadTime = 0.0, storeTime = 0.0)))
+                        migrationTime = Some(0.0))
                     incCounter(s"$metricName.migrationFailedRetries")
             }
         }

@@ -211,9 +211,15 @@ object Util {
                 Some(addColumnValue.extract[String])
             logger.info("Add Column: {}", addColumn.orNull)
 
-            val incrementalSettings: IncrementalSettings = IncrementalSettings(whereCondition,
-                shallMerge = true, mergeKey = mergeKey, shallVacuumAfterLoad = true,
-                customSelectFromStaging = addColumn)
+            val shallVacuumAfterLoadValue: JValue = table \ "deleteOnlyVacuum"
+            val shallVacuumAfterLoad: Boolean = if (shallVacuumAfterLoadValue == JNothing || shallVacuumAfterLoadValue == JNull)
+                false
+            else
+                shallVacuumAfterLoadValue.extract[Boolean]
+            logger.info("Delete only vacuum is {}", shallVacuumAfterLoad)
+
+            val incrementalSettings: IncrementalSettings = IncrementalSettings(whereCondition, shallMerge = true,
+                mergeKey = mergeKey, shallVacuumAfterLoad = shallVacuumAfterLoad, customSelectFromStaging = addColumn)
 
             val settings: Some[IncrementalSettings] = Some(incrementalSettings)
             internalConfig = InternalConfig(shallSplit = Some(isSplittable), distKey = distKey, incrementalSettings = settings,
@@ -357,9 +363,9 @@ object Util {
     }
 
     def formattedInfoSection(appConfigurations: Seq[AppConfiguration]): String = {
-        val tableSpaceFormatString = "|%4s| %20s| %40s| %20s| %12s| %8s| %9s|"
+        val tableSpaceFormatString = "|%4s| %20s| %40s| %20s| %12s| %13s|"
         val header = String.format(tableSpaceFormatString, "SNo", "MySQL DB", "Table Name",
-            "Redshift Schema", "isSuccessful", "LoadTime", "StoreTime")
+            "Redshift Schema", "isSuccessful", "MigrationTime")
 
         var formattedString = "-" * header.length + "\n"
         formattedString += header + "\n"
@@ -368,8 +374,7 @@ object Util {
         for (appConf <- appConfigurations) {
             formattedString += String.format(tableSpaceFormatString + "\n", sno.toString,
                 appConf.mysqlConf.db, appConf.mysqlConf.tableName, appConf.redshiftConf.schema,
-                appConf.status.get.isSuccessful.toString, appConf.migrationTime.get.loadTime.toString,
-                appConf.migrationTime.get.storeTime.toString)
+                appConf.status.get.isSuccessful.toString, appConf.migrationTime.get.toString)
             formattedString += "-" * header.length + "\n"
             sno += 1
         }
