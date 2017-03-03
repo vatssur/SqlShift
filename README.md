@@ -220,3 +220,11 @@ following way:-
     }
   ]
   ```
+  
+### Support
+
+Please use the following support channels:
+
+* [Issues](https://github.com/goibibo/SqlShift/issues) - For bug reporting or feature enhancements.
+* E-Mail - Mail any of us on any issue.
+    * [Shivam Sharma](shivam.sharma@gmail.com) / [Sunny Shah](sunny.shah@goibibo.com) 
