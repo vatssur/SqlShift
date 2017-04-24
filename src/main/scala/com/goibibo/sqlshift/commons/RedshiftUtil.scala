@@ -231,8 +231,7 @@ object RedshiftUtil {
     }
 
     def convertMySqlTypeToRedshiftType(columnType: String, precision: Int, scale: Int): String = {
-        val redshiftType: RedshiftType = if (columnType.toUpperCase == "TINYINT" && precision == 1) RedshiftType("BOOLEAN")
-        else mysqlToRedshiftTypeConverter(columnType.toUpperCase)
+        val redshiftType: RedshiftType = mysqlToRedshiftTypeConverter(columnType.toUpperCase)
         //typeName:String, hasPrecision:Boolean = false, hasScale:Boolean = false, precisionMultiplier:Int
         val result = if (redshiftType.hasPrecision && redshiftType.hasScale) {
             s"${redshiftType.typeName}( ${precision * redshiftType.precisionMultiplier}, $scale )"
@@ -263,7 +262,7 @@ object RedshiftUtil {
             "BIGINT UNSIGNED" -> RedshiftType("INT8"), //Corner case indeed makes this buggy, Just hoping that it does not occure!
             "FLOAT" -> RedshiftType("FLOAT4"),
             "DOUBLE" -> RedshiftType("FLOAT8"),
-            "DECIMAL" -> RedshiftType("DECIMAL", hasPrecision = true, hasScale = true),
+            "DECIMAL" -> RedshiftType("FLOAT8"),
             "CHAR" -> RedshiftType("VARCHAR", hasPrecision = true, hasScale = false, 4),
             "VARCHAR" -> RedshiftType("VARCHAR", hasPrecision = true, hasScale = false, 4),
             "TINYTEXT" -> RedshiftType("VARCHAR(1024)"),

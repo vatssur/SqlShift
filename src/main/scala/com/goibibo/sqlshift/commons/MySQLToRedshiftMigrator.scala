@@ -33,7 +33,7 @@ object MySQLToRedshiftMigrator {
         logger.info("MySQL details: \n{}", mysqlConfig.toString)
         val tableDetails: TableDetails = RedshiftUtil.getValidFieldNames(mysqlConfig, internalConfig)
         logger.info("Table details: \n{}", tableDetails.toString)
-
+        SqlShiftMySQLDialect.registerDialect()
         val partitionDetails: Option[Seq[String]] = internalConfig.shallSplit match {
             case Some(false) =>
                 logger.info("shallSplit is false")
