@@ -164,11 +164,19 @@ object Util {
         val incrementalColumn: JValue = table \ "incremental"
         var internalConfig: InternalConfig = null
 
+        val isAppendOnlyValue = table \ "isAppendOnly"
+        val isAppendOnly = if (isAppendOnlyValue != JNothing && isAppendOnlyValue != JNull) {
+            isAppendOnlyValue.extract[Boolean]
+        } else {
+            false
+        }
+        logger.info("Whether incremental update is append only: {}", isAppendOnly)
+
         val isSplittableValue = table \ "isSplittable"
         val isSplittable: Boolean = if (isSplittableValue != JNothing && isSplittableValue != JNull) {
             isSplittableValue.extract[Boolean]
         } else {
-            true
+            false //Splitting of the incremental table load is usually degrades the performance.
         }
         logger.info("Whether table is splittable: {}", isSplittable)
 
@@ -219,7 +227,7 @@ object Util {
             logger.info("Delete only vacuum is {}", shallVacuumAfterLoad)
 
             val incrementalSettings: IncrementalSettings = IncrementalSettings(whereCondition, shallMerge = true,
-                mergeKey = mergeKey, shallVacuumAfterLoad = shallVacuumAfterLoad, customSelectFromStaging = addColumn)
+                mergeKey = mergeKey, shallVacuumAfterLoad = shallVacuumAfterLoad, customSelectFromStaging = addColumn, isAppendOnly = isAppendOnly)
 
             val settings: Some[IncrementalSettings] = Some(incrementalSettings)
             internalConfig = InternalConfig(shallSplit = Some(isSplittable), distKey = distKey, incrementalSettings = settings,
@@ -315,6 +323,9 @@ object Util {
                 tableConfJson +=
                         s""",
                            |     "addColumn": "${incrementalSettings.get.customSelectFromStaging}"""".stripMargin
+            tableConfJson +=
+                        s""",
+                           |     "isAppendOnly": "${incrementalSettings.get.isAppendOnly}"""".stripMargin
         }
 
         if (internalConf.mapPartitions.isDefined)

@@ -154,7 +154,7 @@ object RedshiftUtil {
             val fieldNames = td.validFields.map(r => s"""\t"${r.fieldName}" """).mkString(",\n")
             s"""
                | CREATE TABLE ${tableNameWithSchema}_staging AS
-               | SELECT $fieldNames FROM $tableNameWithSchema WHERE 1 = 0
+               | SELECT $fieldNames FROM $tableNameWithSchema LIMIT 0
             """.stripMargin
         } else {
             val fieldNames = td.validFields.map(r => s"""\t"${r.fieldName}" ${r.fieldType}""").mkString(",\n")

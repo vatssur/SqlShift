@@ -47,7 +47,8 @@ private[sqlshift] object InternalConfs {
                                    shallMerge: Boolean = false,
                                    mergeKey: Option[String] = None,
                                    shallVacuumAfterLoad: Boolean = false,
-                                   customSelectFromStaging: Option[String] = None) extends InternalConf
+                                   customSelectFromStaging: Option[String] = None,
+                                   isAppendOnly: Boolean = false) extends InternalConf
 
     //Defaults,
     //If shallSplit = None then shallSplit = true

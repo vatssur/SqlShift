@@ -139,8 +139,8 @@ object MySQLToRedshiftMigrator {
         sqlContext.sparkContext.hadoopConfiguration.set("fs.s3a.access.key", s3Conf.accessKey)
         sqlContext.sparkContext.hadoopConfiguration.set("fs.s3a.secret.key", s3Conf.secretKey)
         val redshiftTableName = RedshiftUtil.getTableNameWithSchema(redshiftConf)
-        val stagingPrepend = "_staging"
-        val redshiftStagingTableName = redshiftTableName + stagingPrepend
+        val stagingPrepend = "_staging" + { val r = scala.util.Random; r.nextInt(10000) }
+        val redshiftStagingTableName = redshiftTableName + stagingPrepend 
         val dropTableString = RedshiftUtil.getDropCommand(redshiftConf)
         logger.info("dropTableString {}", dropTableString)
         val createTableString = RedshiftUtil.getCreateTableString(tableDetails, redshiftConf)
@@ -157,72 +157,87 @@ object MySQLToRedshiftMigrator {
                         logger.info("internalConfig.shallOverwrite is None and internalConfig.incrementalSettings is Some")
                         false
                 }
-            case Some(sct) =>
-                logger.info("internalConfig.shallOverwrite is {}", sct)
-                sct
+            case Some(sow) =>
+                logger.info("internalConfig.shallOverwrite is {}", sow)
+                sow
         }
 
         val dropAndCreateTableString = if (shallOverwrite) dropTableString + "\n" + createTableString else createTableString
 
-        val (dropStagingTableString: String, mergeKey: String, shallVaccumAfterLoad: Boolean) = internalConfig.incrementalSettings match {
-            case None =>
-                logger.info("No dropStagingTableString and No vacuum, internalConfig.incrementalSettings is None")
-                ("", "", false)
-            case Some(IncrementalSettings(whereCondition, shallMerge, stagingTableMergeKey, vaccumAfterLoad, cs)) =>
-                val dropStatingTableStr = if (shallMerge) s"DROP TABLE IF EXISTS $redshiftStagingTableName;" else ""
-                logger.info(s"dropStatingTableStr = {}", dropStatingTableStr)
-                val mKey: String = {
-                    if (shallMerge) {
-                        stagingTableMergeKey match {
-                            case None =>
-                                logger.info("mergeKey is also not provided, we use primary key in this case {}",
-                                    tableDetails.distributionKey.get)
-                                //If primaryKey is not available and mergeKey is also not provided
-                                //This means wrong input, get will crash if tableDetails.distributionKey is None
-                                tableDetails.distributionKey.get
-                            case Some(mk) =>
-                                logger.info(s"Found mergeKey = {}", mk)
-                                mk
+        val (dropStagingTableString: String, mergeKey: String, shallVaccumAfterLoad: Boolean, customFields:Seq[String]) = {
+            internalConfig.incrementalSettings match {
+                case None =>
+                    logger.info("No dropStagingTableString and No vacuum, internalConfig.incrementalSettings is None")
+                    ("", "", false, Seq[String]())
+                case Some(IncrementalSettings(whereCondition, shallMerge, stagingTableMergeKey, vaccumAfterLoad, cs, true)) =>
+                    logger.info("Incremental update is append only")
+                    ("", "", false, Seq[String]())
+                case Some(IncrementalSettings(whereCondition, shallMerge, stagingTableMergeKey, vaccumAfterLoad, cs, false)) =>
+                    val dropStatingTableStr = if (shallMerge) s"DROP TABLE IF EXISTS $redshiftStagingTableName;" else ""
+                    logger.info(s"dropStatingTableStr = {}", dropStatingTableStr)
+                    val mKey: String = {
+                        if (shallMerge) {
+                            stagingTableMergeKey match {
+                                case None =>
+                                    logger.info("mergeKey is also not provided, we use primary key in this case {}",
+                                        tableDetails.distributionKey.get)
+                                    //If primaryKey is not available and mergeKey is also not provided
+                                    //This means wrong input, get will crash if tableDetails.distributionKey is None
+                                    tableDetails.distributionKey.get
+                                case Some(mk) =>
+                                    logger.info(s"Found mergeKey = {}", mk)
+                                    mk
+                            }
+                        } else {
+                            logger.info(s"Shall merge is not specified passing mergeKey as empty")
+                            ""
                         }
-                    } else {
-                        logger.info(s"Shall merge is not specified passing mergeKey as empty")
-                        ""
                     }
-                }
-                (dropStatingTableStr, mKey, vaccumAfterLoad)
+                    val customFieldsI = cs match {
+                        case Some(customSelect) => 
+                            val pattern = Pattern.compile("(?:AS|as)\\s*(\\w+)\\s*(?:,|$)")
+                            val matcher = pattern.matcher(customSelect)
+                            val cf = scala.collection.mutable.ListBuffer.empty[String]
+                            while (matcher.find()) {
+                                val matched = matcher.group(1)
+                                cf += matched
+                                logger.info("matched => {}", matched)
+                            }
+                            cf.toSeq
+                        case None => Seq[String]()
+                    }
+                    (dropStatingTableStr, mKey, vaccumAfterLoad, customFieldsI)
+            }    
         }
-
+        
         val preActions: String = dropAndCreateTableString +
                 (if (dropStagingTableString != "")
-                    dropStagingTableString + alterTableQuery(tableDetails, redshiftConf) + "\n" +
+                    dropStagingTableString + alterTableQuery(tableDetails, redshiftConf, customFields) + "\n" +
                             createStagingTableString
-                else "")
+                else "")        
 
         val postActions: String = if (dropStagingTableString != "") {
             val tableColumns = "\"" + tableDetails.validFields.map(_.fieldName).mkString("\", \"") + "\""
 
             s"""DELETE FROM $redshiftTableName USING $redshiftStagingTableName
-               |    WHERE $redshiftTableName.$mergeKey = $redshiftStagingTableName.$mergeKey; """.stripMargin + "\n" +
-                    (internalConfig.incrementalSettings.get.customSelectFromStaging match {
-                        case None =>
-                            // Handling columns order mismatch
-                            s"""INSERT INTO $redshiftTableName ($tableColumns)
-                               |SELECT $tableColumns FROM $redshiftStagingTableName;""".stripMargin
-                        case Some(customSelect) =>
-                            val pattern = Pattern.compile("(?:AS|as)\\s*(\\w+)\\s*(?:,|$)")
-                            val matcher = pattern.matcher(customSelect)
-                            val customFields = scala.collection.mutable.ListBuffer.empty[String]
-                            while (matcher.find()) {
-                                val matched = matcher.group(1)
-                                customFields += matched
-                                logger.info("matched => {}", matched)
-                            }
-                            val customFieldsStr = "\"" + customFields.mkString("\", \"") + "\""
-                            val customColumns = if (customFields.nonEmpty) s"( $tableColumns, $customFieldsStr )" else ""
-                            logger.info("customColumns => {}", customColumns)
-                            s"""INSERT INTO $redshiftTableName $customColumns
-                               |SELECT *, $customFieldsStr FROM $redshiftStagingTableName;""".stripMargin
-                    }) + "\n" + dropStagingTableString
+               |    WHERE $redshiftTableName.$mergeKey = $redshiftStagingTableName.$mergeKey; """.stripMargin + 
+           "\n" + 
+           {
+                if(customFields.size == 0) {
+                    // Handling columns order mismatch
+                        s"""INSERT INTO $redshiftTableName ($tableColumns)
+                           |SELECT $tableColumns FROM $redshiftStagingTableName;""".stripMargin
+                } else {
+                    val customFieldsStr = "\"" + customFields.mkString("\", \"") + "\""
+                    val allColumnsPlusCustomOnes   = s"( $tableColumns, $customFieldsStr )"
+                    logger.info("allColumnsPlusCustomOnes => {}", allColumnsPlusCustomOnes)
+                    val customSelect:String = internalConfig.incrementalSettings.get.customSelectFromStaging.get
+                    s"""INSERT INTO $redshiftTableName $allColumnsPlusCustomOnes
+                       |SELECT *, $customSelect FROM $redshiftStagingTableName;""".stripMargin
+                }
+           } + 
+           "\n" + 
+           dropStagingTableString
         } else {
             ""
         }
@@ -230,7 +245,7 @@ object MySQLToRedshiftMigrator {
         logger.info("Redshift PreActions = {}", preActions)
         logger.info("Redshift PostActions = {}", postActions)
 
-        val redshiftWriteMode = if (dropStagingTableString != "") "overwrite" else "append"
+        val redshiftWriteMode = if (dropStagingTableString == "") "append" else "overwrite"
         logger.info("Redshift write mode: {}", redshiftWriteMode)
 
 
@@ -247,7 +262,10 @@ object MySQLToRedshiftMigrator {
                     df
             case None => df
         }
-
+        val extracopyoptions = if (dropStagingTableString != "") {
+                "TRUNCATECOLUMNS COMPUPDATE OFF STATUPDATE OFF" 
+            } else "TRUNCATECOLUMNS "
+        
         val redshiftWriter = redshiftWriterPartitioned.write.
                 format("com.databricks.spark.redshift").
                 option("url", RedshiftUtil.getJDBCUrl(redshiftConf)).
@@ -256,7 +274,7 @@ object MySQLToRedshiftMigrator {
                 option("jdbcdriver", "com.amazon.redshift.jdbc4.Driver").
                 option("dbtable", redshiftTableNameForIngestion).
                 option("tempdir", s3Conf.s3Location).
-                option("extracopyoptions", "TRUNCATECOLUMNS").
+                option("extracopyoptions", extracopyoptions).
                 mode(redshiftWriteMode)
 
         val redshiftWriterWithPreActions = {
@@ -288,7 +306,7 @@ object MySQLToRedshiftMigrator {
       * @param redshiftConf redshift configuration
       * @return Query of add and delete columns from redshift table
       */
-    private def alterTableQuery(tableDetails: TableDetails, redshiftConf: DBConfiguration): String = {
+    private def alterTableQuery(tableDetails: TableDetails, redshiftConf: DBConfiguration, customFields:Seq[String]): String = {
 
         val redshiftTableName: String = RedshiftUtil.getTableNameWithSchema(redshiftConf)
         try {
@@ -300,7 +318,7 @@ object MySQLToRedshiftMigrator {
                     .map { td => td.fieldName.toLowerCase -> td.fieldType }
                     .toMap
 
-            val stagingTableColumnNames: Set[String] = stagingTableColumnAndTypes.keys.toSet
+            val stagingTableColumnNames: Set[String] = (stagingTableColumnAndTypes.keys ++ customFields).toSet
             val addedColumns: Set[String] = stagingTableColumnNames -- mainTableColumnNames
             val deletedColumns: Set[String] = mainTableColumnNames -- stagingTableColumnNames
 
