@@ -8,7 +8,7 @@ import com.goibibo.sqlshift.models.InternalConfs.{IncrementalSettings, InternalC
 import com.goibibo.sqlshift.models._
 import org.apache.spark.sql.SQLContext
 import org.apache.spark.{SparkConf, SparkContext}
-import org.json4s.native.JsonMethods._
+import org.json4s.jackson.JsonMethods._
 import org.json4s.{DefaultFormats, _}
 import org.slf4j.{Logger, LoggerFactory}
 
