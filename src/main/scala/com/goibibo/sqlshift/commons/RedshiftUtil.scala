@@ -148,12 +148,12 @@ object RedshiftUtil {
         else s"${rc.tableName}"
     }
 
-    def getCreateTableString(td: TableDetails, rc: DBConfiguration, isStaging: Boolean = false): String = {
+    def getCreateTableString(td: TableDetails, rc: DBConfiguration, stagingTableName: Option[String] = None): String = {
         val tableNameWithSchema = getTableNameWithSchema(rc)
-        if (isStaging) {
+        if (stagingTableName.isDefined) {
             val fieldNames = td.validFields.map(r => s"""\t"${r.fieldName}" """).mkString(",\n")
             s"""
-               | CREATE TABLE ${tableNameWithSchema}_staging AS
+               | CREATE TABLE ${stagingTableName.get} AS
                | SELECT $fieldNames FROM $tableNameWithSchema LIMIT 0
             """.stripMargin
         } else {

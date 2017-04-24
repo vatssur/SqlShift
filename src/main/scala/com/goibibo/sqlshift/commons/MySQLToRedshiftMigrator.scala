@@ -145,7 +145,7 @@ object MySQLToRedshiftMigrator {
         logger.info("dropTableString {}", dropTableString)
         val createTableString = RedshiftUtil.getCreateTableString(tableDetails, redshiftConf)
         //val redshiftStagingConf = redshiftConf.copy(tableName = redshiftConf.tableName + stagingPrepend)
-        val createStagingTableString = RedshiftUtil.getCreateTableString(tableDetails, redshiftConf, isStaging = true)
+        val createStagingTableString = RedshiftUtil.getCreateTableString(tableDetails, redshiftConf,  Some(redshiftStagingTableName))
         logger.info("createTableString {}", createTableString)
         val shallOverwrite = internalConfig.shallOverwrite match {
             case None =>
