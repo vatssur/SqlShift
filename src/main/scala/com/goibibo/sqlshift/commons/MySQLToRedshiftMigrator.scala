@@ -264,7 +264,7 @@ object MySQLToRedshiftMigrator {
         }
         val extracopyoptions = if (dropStagingTableString != "") {
                 "TRUNCATECOLUMNS COMPUPDATE OFF STATUPDATE OFF" 
-            } else "TRUNCATECOLUMNS "
+            } else "TRUNCATECOLUMNS COMPUPDATE OFF "
         
         val redshiftWriter = redshiftWriterPartitioned.write.
                 format("com.databricks.spark.redshift").

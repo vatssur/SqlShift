@@ -157,7 +157,7 @@ object RedshiftUtil {
                | SELECT $fieldNames FROM $tableNameWithSchema LIMIT 0
             """.stripMargin
         } else {
-            val fieldNames = td.validFields.map(r => s"""\t"${r.fieldName}" ${r.fieldType}""").mkString(",\n")
+            val fieldNames = td.validFields.map(r => s"""\t"${r.fieldName}" ${r.fieldType} ENCODE ZSTD """).mkString(",\n")
             val distributionKey = td.distributionKey match {
                 case None => "DISTSTYLE EVEN"
                 case Some(key) => s"""DISTSTYLE KEY \nDISTKEY ( "$key" ) """
