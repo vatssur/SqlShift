@@ -131,6 +131,8 @@ object Util {
 
         System.setProperty("com.amazonaws.services.s3.enableV4", "true")
         sc.hadoopConfiguration.set("fs.s3a.endpoint", "s3.ap-south-1.amazonaws.com")
+        sc.hadoopConfiguration.set("spark.hadoop.mapreduce.fileoutputcommitter.algorithm.version", "2")
+        sc.hadoopConfiguration.set("fs.s3a.fast.upload","true")
         (sc, sqlContext)
     }
 
