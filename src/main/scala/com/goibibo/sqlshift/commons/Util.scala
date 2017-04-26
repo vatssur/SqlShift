@@ -163,6 +163,22 @@ object Util {
         implicit val formats = DefaultFormats
 
         logger.info("\n------------- Start :: table: {} -------------", (table \ "name").extract[String])
+        val preLoadCmdValue: JValue = table \ "preLoadCmd"
+        val preLoadCmd = if (preLoadCmdValue != JNothing && preLoadCmdValue != JNull) {
+            val strVal = preLoadCmdValue.extract[String] 
+            if(strVal.trim == "") None else Some(strVal.trim)
+        } else {
+            None
+        }
+
+        val postLoadCmdValue: JValue = table \ "postLoadCmd"
+        val postLoadCmd = if (postLoadCmdValue != JNothing && postLoadCmdValue != JNull) {
+            val strVal = postLoadCmdValue.extract[String] 
+            if(strVal.trim == "") None else Some(strVal.trim)
+        } else {
+            None
+        }
+        val redshiftConfU = redshiftConf.copy(preLoadCmd = preLoadCmd, postLoadCmd = postLoadCmd)
         val incrementalColumn: JValue = table \ "incremental"
         var internalConfig: InternalConfig = null
 
@@ -235,7 +251,7 @@ object Util {
             internalConfig = InternalConfig(shallSplit = Some(isSplittable), distKey = distKey, incrementalSettings = settings,
                 mapPartitions = partitions, reducePartitions = partitions)
         }
-        AppConfiguration(mysqlConf, redshiftConf, s3Conf, internalConfig)
+        AppConfiguration(mysqlConf, redshiftConfU, s3Conf, internalConfig)
     }
 
     def getAppConfigurations(jsonPath: String): Seq[AppConfiguration] = {

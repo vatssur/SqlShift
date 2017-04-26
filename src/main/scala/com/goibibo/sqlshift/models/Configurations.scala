@@ -18,7 +18,9 @@ private[sqlshift] object Configurations {
                                hostname: String,
                                portNo: Int,
                                userName: String,
-                               password: String) extends Configuration {
+                               password: String,
+                               preLoadCmd:Option[String] = None,
+                               postLoadCmd:Option[String] = None) extends Configuration {
 
         override def toString: String = {
             s"""{

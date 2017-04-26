@@ -79,8 +79,10 @@ Usage: SQLShift [options]
          "mergeKey": "",
          "addColumn": "",
          "partitions": "",
-         "isSplittable": true / false
-         "isAppendOnly": true / false
+         "isSplittable": true / false,
+         "isAppendOnly": true / false,
+         "preLoadCmd":"",
+         "postLoadCmd":""
      }
     ],
     "redshift":

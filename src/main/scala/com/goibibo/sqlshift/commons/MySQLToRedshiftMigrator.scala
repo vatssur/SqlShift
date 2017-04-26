@@ -210,13 +210,22 @@ object MySQLToRedshiftMigrator {
             }    
         }
         
-        val preActions: String = dropAndCreateTableString +
-                (if (dropStagingTableString != "")
-                    dropStagingTableString + alterTableQuery(tableDetails, redshiftConf, customFields) + "\n" +
-                            createStagingTableString
-                else "")        
+        val preActions: String = {
+                redshiftConf.preLoadCmd.map(_ + ";" + "\n").getOrElse("") +
+                dropAndCreateTableString +
+                {
+                    if (dropStagingTableString != "") {
+                        dropStagingTableString + 
+                        alterTableQuery(tableDetails, redshiftConf, customFields) + 
+                        "\n" + 
+                        createStagingTableString
+                    } else {
+                        ""
+                    }
+                }        
+            }
 
-        val postActions: String = if (dropStagingTableString != "") {
+        val postActions: String = (if (dropStagingTableString != "") {
             val tableColumns = "\"" + tableDetails.validFields.map(_.fieldName).mkString("\", \"") + "\""
 
             s"""DELETE FROM $redshiftTableName USING $redshiftStagingTableName
@@ -240,7 +249,7 @@ object MySQLToRedshiftMigrator {
            dropStagingTableString
         } else {
             ""
-        }
+        }) + redshiftConf.postLoadCmd.map( "\n" + "; " + _ ).getOrElse("")
 
         logger.info("Redshift PreActions = {}", preActions)
         logger.info("Redshift PostActions = {}", postActions)
