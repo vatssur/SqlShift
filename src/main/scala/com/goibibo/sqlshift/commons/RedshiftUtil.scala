@@ -90,7 +90,7 @@ object RedshiftUtil {
                 s"${conf.schema}.${conf.tableName}"
             else
                 conf.tableName
-        s"DROP TABLE IF EXISTS $tableNameWithSchema;"
+        s"DROP TABLE IF EXISTS $tableNameWithSchema CASCADE;"
     }
 
     def createRedshiftTable(con: Connection, conf: DBConfiguration, createTableQuery: String, overwrite: Boolean = true): Unit = {

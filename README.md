@@ -186,7 +186,7 @@ want to lift small part of table then you can do it using incremental facility p
   it will help application process data in parallel.
 
 3. **Non-Splittable**:- If table is non-splittable then add `"isSplittable": false`. But large table needs to be splitted otherwise it will
-became impossible to migrate table in real-time. By default this field is `true` if not passed.
+became impossible to migrate table in real-time. By default this field is `false` if not passed.
 
 ```json
  [
@@ -195,7 +195,7 @@ became impossible to migrate table in real-time. By default this field is `true`
      "tables": [
        {
          "name": "test",
-         "isSplittable": false
+         "isSplittable": true
        }
      ],
      "redshift": {...},
