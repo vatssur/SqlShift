@@ -109,7 +109,7 @@ object SQLShift {
             } catch {
                 case e: Exception =>
                     logger.error("Transfer Failed for configuration: \n{}", configuration)
-                    logger.error("Stack Trace: ", e.fillInStackTrace())
+                    logger.error("Stack Trace: {} ", org.apache.commons.lang.exception.ExceptionUtils.getStackTrace(e))
                     finalConfigurations :+= configuration.copy(status = Some(Status(isSuccessful = false, e)),
                         migrationTime = Some(0.0))
                     incCounter(s"$metricName.migrationFailedRetries")
