@@ -247,15 +247,16 @@ object MySQLToRedshiftMigrator {
                     s"""INSERT INTO $redshiftTableName $allColumnsPlusCustomOnes
                        |SELECT *, $customSelect FROM $redshiftStagingTableName;""".stripMargin
                 }
-           } + 
-           "\n" + 
-           dropStagingTableString
+           }
         } else {
             ""
         }
 
         val postActions: String = Seq[String](stagingTablePostActions,
-                                                redshiftConf.postLoadCmd.getOrElse("")
+                                                redshiftConf.postLoadCmd.map{
+                                                    _.replace("{{s}}",redshiftStagingTableName)
+                                                }.getOrElse(""),
+                                                dropStagingTableString
                                              ).filter( _.trim != "").mkString("\n ;")
 
         logger.info("Redshift PreActions = {}", preActions)
