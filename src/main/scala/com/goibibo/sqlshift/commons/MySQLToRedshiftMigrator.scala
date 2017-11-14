@@ -136,8 +136,11 @@ object MySQLToRedshiftMigrator {
 
         logger.info("Storing to Redshift")
         logger.info("Redshift Details: \n{}", redshiftConf.toString)
-        sqlContext.sparkContext.hadoopConfiguration.set("fs.s3a.access.key", s3Conf.accessKey)
-        sqlContext.sparkContext.hadoopConfiguration.set("fs.s3a.secret.key", s3Conf.secretKey)
+        if(s3Conf.accessKey.isDefined && s3Conf.secretKey.isDefined) {
+            sqlContext.sparkContext.hadoopConfiguration.set("fs.s3a.access.key", s3Conf.accessKey.get)    
+            sqlContext.sparkContext.hadoopConfiguration.set("fs.s3a.secret.key", s3Conf.secretKey.get)
+        }
+        
         val redshiftTableName = RedshiftUtil.getTableNameWithSchema(redshiftConf)
         val stagingPrepend = "_staging" + { val r = scala.util.Random; r.nextInt(10000) }
         val redshiftStagingTableName = redshiftTableName + stagingPrepend 

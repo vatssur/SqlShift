@@ -115,9 +115,7 @@
           }
         },
         "required": [
-          "location",
-          "accessKey",
-          "secretKey"
+          "location"
         ]
       }
     },

@@ -33,8 +33,8 @@ private[sqlshift] object Configurations {
     }
 
     case class S3Config(s3Location: String,
-                        accessKey: String,
-                        secretKey: String) extends Configuration
+                        accessKey: Option[String],
+                        secretKey: Option[String]) extends Configuration
 
 
     case class AppConfiguration(mysqlConf: DBConfiguration,

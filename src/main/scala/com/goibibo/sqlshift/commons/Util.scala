@@ -155,7 +155,8 @@ object Util {
             (redshiftJson \ "username").extract[String], (redshiftJson \ "password").extract[String])
 
         val s3Conf: S3Config = S3Config((s3Json \ "location").extract[String],
-            (s3Json \ "accessKey").extract[String], (s3Json \ "secretKey").extract[String])
+            Try{Some((s3Json \ "accessKey").extract[String])}.getOrElse(None), 
+            Try{Some((s3Json \ "secretKey").extract[String])}.getOrElse(None))
         (mysqlConf, redshiftConf, s3Conf)
     }
 
