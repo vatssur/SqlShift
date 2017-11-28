@@ -5,7 +5,8 @@ scalaVersion := "2.10.6"
 
 resolvers ++= Seq(
     "Typesafe" at "http://repo.typesafe.com/typesafe/releases/",
-    "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots"
+    "Sonatype OSS Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots",
+    "Cloudera" at "https://repository.cloudera.com/content/repositories/releases"
 )
 
 
