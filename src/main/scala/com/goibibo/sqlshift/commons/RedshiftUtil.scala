@@ -287,8 +287,6 @@ object RedshiftUtil {
                 option("dbtable", sqlQuery).
                 option("driver", "com.mysql.jdbc.Driver").
                 option("user", mysqlConfig.userName).
-                option("password", mysqlConfig.password).
-                option("fetchSize", Integer.MIN_VALUE.toString).
-                option("fetchsize", Integer.MIN_VALUE.toString) //https://issues.apache.org/jira/browse/SPARK-11474
+                option("password", mysqlConfig.password)
     }
 }
