@@ -1,4 +1,4 @@
-package com.goibibo.sqlshift.models
+package com.goibibo.sqlshift.offsetmanagement
 
 /**
   * Project: sqlshift
@@ -10,37 +10,34 @@ package com.goibibo.sqlshift.models
 trait OffsetManager {
 
     /**
-      * Returns the offset stored in a path.
+      * Returns the offset stored for specific table.
       *
-      * @param path path of offset file.(URL or Zookeeper)
-      * @return
+      * @return Offset data for table
       */
-    def getOffset(path: String): String
+    def getOffset(tableName: String): Option[String]
 
     /**
-      * Set the offset value on specified path.
+      * Set the offset value on specified table.
       *
-      * @param path path of offset file.(URL or Zookeeper)
       * @param value value to set
+      * @return true of successful set or vice versa
       */
-    def setOffset(path: String, value: String): Unit
+    def setOffset(tableName: String, value: String): Boolean
 
     /**
-      * Get lock on path to prevent concurrent running application migrating same table.
+      * Get lock on table to prevent concurrent running application migrating same table.
       * This lock is specific to specific table specified in configuration.
       * It returns true for acquiring lock and vice versa.
       *
-      * @param path path of lock file.
       * @return
       */
-    def getLock(path: String): Boolean
+    def getLock(tableName: String): Boolean
 
     /**
       * Release lock of specific table. Whether a lock is present or not this method
       * will always succeed.
       *
-      * @param path path of lock file.
       * @return
       */
-    def releaseLock(path: String): Unit
+    def releaseLock(tableName: String): Unit
 }
