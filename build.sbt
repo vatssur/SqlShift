@@ -35,7 +35,8 @@ libraryDependencies ++= Seq(
     "com.github.scopt" %% "scopt" % "3.5.0",
     "javax.mail" % "mail" % "1.4.7",
     ("io.dropwizard" % "dropwizard-metrics" % "1.0.5").
-        exclude("org.slf4j","slf4j-api")
+        exclude("org.slf4j","slf4j-api"),
+    "com.jsuereth" %% "scala-arm" % "2.0"
 )
 
 unmanagedJars in Compile += file("lib/RedshiftJDBC4-1.1.17.1017.jar")

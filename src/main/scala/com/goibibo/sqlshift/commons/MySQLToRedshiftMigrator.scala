@@ -2,13 +2,13 @@ package com.goibibo.sqlshift.commons
 
 import java.util.Properties
 import java.util.regex._
-
+import java.sql.{Connection, DriverManager, ResultSet}
 import com.goibibo.sqlshift.models.Configurations.{DBConfiguration, S3Config}
 import com.goibibo.sqlshift.models.InternalConfs.{IncrementalSettings, InternalConfig, TableDetails}
 import org.apache.spark.sql._
 import org.slf4j.{Logger, LoggerFactory}
-
-import scala.collection.immutable.Seq
+import scala.util.Try
+import resource._
 
 /*
 --packages "org.apache.hadoop:hadoop-aws:2.7.2,com.databricks:spark-redshift_2.10:1.1.0,com.amazonaws:aws-java-sdk:1.7.4,mysql:mysql-connector-java:5.1.39"
@@ -41,11 +41,11 @@ object MySQLToRedshiftMigrator {
             case _ =>
                 logger.info("shallSplit either not set or true")
                 tableDetails.distributionKey match {
-                    case Some(primaryKey) =>
-                        val typeOfPrimaryKey = tableDetails.validFields.filter(_.fieldName == primaryKey).head.fieldType
+                    case Some(dKey) =>
+                        val typeOfdKey = tableDetails.validFields.filter(_.fieldName == dKey).head.fieldType
                         //Spark supports only long to break the table into multiple fields
                         //https://github.com/apache/spark/blob/branch-1.6/sql/core/src/main/scala/org/apache/spark/sql/execution/datasources/jdbc/JDBCRelation.scala#L33
-                        if (typeOfPrimaryKey.startsWith("INT")) {
+                        if (typeOfdKey.startsWith("INT") || typeOfdKey.startsWith("TIMESTAMP")) {
 
                             val whereCondition = internalConfig.incrementalSettings match {
                                 case Some(incrementalSettings) =>
@@ -55,27 +55,14 @@ object MySQLToRedshiftMigrator {
                                     logger.info("Found no where condition ")
                                     None
                             }
-
-                            val minMax: (Long, Long) = Util.getMinMax(mysqlConfig, primaryKey, whereCondition)
-                            val nr: Long = minMax._2 - minMax._1 + 1
-
-                            val mapPartitions = internalConfig.mapPartitions match {
-                                case Some(partitions) => partitions
-                                case None => Util.getPartitions(sqlContext, mysqlConfig, minMax)
-                            }
-                            if (mapPartitions == 0) {
-                                None
-                            } else {
-                                val inc: Long = Math.ceil(nr.toDouble / mapPartitions).toLong
-                                val predicates = (0 until mapPartitions).toList.
-                                        map { n =>
-                                            s"$primaryKey BETWEEN ${minMax._1 + n * inc} AND ${minMax._1 - 1 + (n + 1) * inc} "
-                                        }.
-                                        map(c => if (whereCondition.isDefined) c + s"AND (${whereCondition.get})" else c)
-                                Some(predicates)
-                            }
+                            val isDistKeyTimestamp = if (typeOfdKey == "TIMESTAMP") true else false
+                            val partitionsPredicates = getPartitions(sqlContext, mysqlConfig, internalConfig, 
+                                            whereCondition.getOrElse(""), 
+                                            dKey,
+                                            isDistKeyTimestamp)
+                            Some(partitionsPredicates)
                         } else {
-                            logger.warn(s"primary keys is non INT $typeOfPrimaryKey")
+                            logger.warn(s"primary keys is non INT | non TIMESTAMP $typeOfdKey")
                             None
                         }
                     case None =>
@@ -355,4 +342,120 @@ object MySQLToRedshiftMigrator {
                 ""
         }
     }
+
+
+    def getPartitions(sqlContext: SQLContext, mysqlConfig: DBConfiguration,
+                      internalConfig: InternalConfig, combinedWhereCondition: String, 
+                      distKey:String,
+                      isDistKeyTimestamp: Boolean
+                  ): Seq[String] = {
+
+        val partitionsProvided = internalConfig.mapPartitions
+        
+        val allRecordsCondition = "1 = 1"
+        //If user wants only one partition then let us not do any processing
+        if (partitionsProvided.isDefined && partitionsProvided.get == 1) {
+            if (combinedWhereCondition != "") {
+                logger.info(s"User has requested for the single partition, partition condition is $combinedWhereCondition")
+                Seq(combinedWhereCondition)
+            } else {
+                logger.info(s"User has requested for a single partition, allRecordsCondition = $allRecordsCondition")
+                Seq[String](allRecordsCondition) //Return all the records in single partition
+            }
+        } else {
+            implicit val connection = RedshiftUtil.getConnection(mysqlConfig)
+            //If distkey is not provided, use the primary key
+            val result = {
+                logger.info(s"distKey found, it is ${distKey}")
+                Util.getMinMaxForDistKey(mysqlConfig, distKey, 
+                                    combinedWhereCondition, 
+                                    isDistKeyTimestamp) match {
+                    case Some(minMax) => {
+                        logger.info(s"MinMax for the distKey=${distKey} is ${minMax}")
+                        val recordsPerTask = Util.getRecordsPerTask(sqlContext, mysqlConfig,
+                            partitionsProvided, minMax)
+                        val partitionsC = if (isDistKeyTimestamp) {
+                            getPartitionsInternalT(mysqlConfig, minMax, recordsPerTask, distKey)
+                        } else {
+                            getPartitionsInternal(minMax, recordsPerTask, distKey)
+                        }
+
+                        val partitions = if (partitionsC.isEmpty) {
+                            logger.warn(s"Received partitionsCount = 0, sending allRecordsCondition")
+                            Seq[String](allRecordsCondition)
+                        } else {
+                            partitionsC
+                        }
+
+                        partitions.map(c => {
+                            if (combinedWhereCondition.isEmpty) c
+                            else c + s" AND ($combinedWhereCondition)"
+                        })
+                    }
+                    case None =>
+                        logger.warn("No min, max found in the table")
+                        Seq[String]()
+                }
+            }
+
+            //If partitions are not provides then detect the number of partitions
+            Try {
+                connection.close()
+            }
+            result
+        }
+    }
+
+    def getPartitionsInternalT(conf: DBConfiguration, minMax: (Long, Long),
+                               recordsPerTask: Int, distkey: String)
+                              (implicit con: Connection): Seq[String] = {
+        val query = s"SELECT ${distkey} FROM ${conf.db}.${conf.tableName} WHERE ${distkey} >= FROM_UNIXTIME(${minMax._1}) AND ${distkey} <= FROM_UNIXTIME(${minMax._2})"
+        var partitions = Seq[String]()
+        for (
+            stmt <- managed(con.createStatement);
+            rs <- managed(stmt.executeQuery(query))) {
+
+            var partitionPoints = IndexedSeq[Long](minMax._1)
+            var counter: Int = 0
+            while (rs.next) {
+                counter = counter + 1
+                if (counter % recordsPerTask == 0) {
+                    val distkeyValue = rs.getTimestamp(1).getTime / 1000
+                    partitionPoints = partitionPoints :+ distkeyValue
+                }
+            }
+            partitionPoints = partitionPoints :+ (minMax._2 + 1)
+            partitions = partitionPoints.zipWithIndex.slice(0, partitionPoints.size - 1).map {
+                case (strP, idx) => (strP, partitionPoints(idx + 1))
+            }.map { case (fromT, toT) =>
+                s"""(   ${distkey} >= FROM_UNIXTIME(${fromT}) AND ${distkey} < FROM_UNIXTIME(${toT}) )"""
+            }
+        }
+        partitions
+    }
+
+    def getPartitionsInternal(minMax: (Long, Long), recordsPerTask: Int, distKey: String)(implicit con: Connection): Seq[String] = {
+        val minMaxDiff: Long = minMax._2 - minMax._1 + 1
+        var partitions: Int = Math.ceil(minMaxDiff.toDouble / recordsPerTask.toDouble).toInt
+        logger.info("Total number of partitions are {}", partitions)
+
+        if (partitions == 0) {
+            logger.warn(s"Received partitionsCount = 0, sending allRecordsCondition")
+            Seq[String]()
+        } else {
+            val minV = minMax._1
+            val maxV = minMax._2
+            val nr: Long = maxV - minV
+            val inc: Long = Math.ceil(nr.toDouble / partitions).toLong
+            (0 until partitions).toList.map { n =>
+                val fromValue = minV + n * inc
+                val toValue = {
+                    if (n < partitions - 1) (minV + (n + 1) * inc) - 1
+                    else maxV
+                }
+                s"$distKey BETWEEN ${fromValue} AND ${toValue}"
+            }
+        }
+    }
+
 }

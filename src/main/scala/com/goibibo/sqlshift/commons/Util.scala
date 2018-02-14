@@ -11,6 +11,8 @@ import org.apache.spark.{SparkConf, SparkContext}
 import org.json4s.jackson.JsonMethods._
 import org.json4s.{DefaultFormats, _}
 import org.slf4j.{Logger, LoggerFactory}
+import java.sql.{Connection, DriverManager, ResultSet}
+import resource._
 
 import scala.util.Try
 
@@ -70,34 +72,38 @@ object Util {
         }
     }
 
+    def getMinMaxForDistKey(conf: DBConfiguration, distKey: String, whereCondition: String,
+                            isDistKeyTimestamp: Boolean)(
+                                   implicit con: Connection): Option[(Long, Long)] = {
 
-    /**
-      * Get minimum, maximum of primary key if primary key is integer and total records with given where condition
-      *
-      * @param mysqlDBConf    mysql configuration
-      * @param whereCondition filter condition(without where clause)
-      * @return tuple: (min, max)
-      */
-    def getMinMax(mysqlDBConf: DBConfiguration, distKey: String, whereCondition: Option[String] = None): (Long, Long) = {
-        val connection = RedshiftUtil.getConnection(mysqlDBConf)
+        var query = if (!isDistKeyTimestamp) {
+            s"SELECT min($distKey), max($distKey) FROM ${conf.db}.${conf.tableName}"
+        } else {
+            s"SELECT UNIX_TIMESTAMP(min($distKey)), UNIX_TIMESTAMP(max($distKey)) FROM ${conf.db}.${conf.tableName}"
+        }
 
-        var query = s"SELECT min($distKey), max($distKey) FROM ${mysqlDBConf.db}.${mysqlDBConf.tableName}"
-        if (whereCondition.nonEmpty) {
-            query += " WHERE " + whereCondition.get
+        if (!whereCondition.isEmpty()) {
+            query += " WHERE " + whereCondition
         }
-        logger.info("Running Query: \n{}", query)
-        val result: ResultSet = connection.createStatement().executeQuery(query)
-        try {
-            result.next()
-            val min: Long = result.getLong(1)
-            val max: Long = result.getLong(2)
-            logger.info(s"Minimum $distKey: $min :: Maximum $distKey: $max")
-            (min, max)
-        } finally {
-            result.close()
-            connection.close()
-        }
+
+        logger.info("Running Query to get min,max: \n{}", query)
+
+        Try {
+            var minMax: Option[(Long, Long)] = None
+            for (
+                stmt <- managed(con.createStatement);
+                rs <- managed(stmt.executeQuery(query))) {
+
+                rs.next()
+                val min: Long = rs.getLong(1)
+                val max: Long = rs.getLong(2)
+                minMax = Some((min, max))
+                logger.info(s"Minimum $distKey: $min :: Maximum $distKey: $max")
+            }
+            minMax
+        }.getOrElse(None)
     }
+
 
     /**
       * Get optimum number of partitions on the basis of auto incremental and executor size.
@@ -112,6 +118,7 @@ object Util {
         val minMaxDiff: Long = minMaxAndRows._2 - minMaxAndRows._1 + 1
         val avgRowSize: Long = getAvgRowSize(mysqlDBConf)
         if (avgRowSize == 0) {
+            logger.warn("ERROR: avgRowSize is 0")
             return 0
         }
         logger.info("Average Row size: {}, difference b/w min-max primary key: {}", avgRowSize, minMaxDiff)
@@ -134,6 +141,33 @@ object Util {
         sc.hadoopConfiguration.set("spark.hadoop.mapreduce.fileoutputcommitter.algorithm.version", "2")
         sc.hadoopConfiguration.set("fs.s3a.fast.upload","true")
         (sc, sqlContext)
+    }
+
+    def getRecordsPerTask(sqlContext: SQLContext, dbConf: DBConfiguration,
+                          partitionsProvided: Option[Int], 
+                          minMaxAndRows: (Long, Long),
+                          executorMemoryToDataRatio: Double = 1.0)
+                         (implicit con: Connection): Int = {
+        val minMaxDiff: Long = minMaxAndRows._2 - minMaxAndRows._1 + 1
+        partitionsProvided match {
+            case Some(partitions) => {
+                Math.ceil(minMaxDiff.toDouble / partitions.toDouble).toInt
+            }
+            case None => {
+                val memory: Long = getExecutorMemory(sqlContext.sparkContext.getConf)
+                logger.info("Calculating number of partitions with each executor has memory: {}", memory)
+                val avgRowSize: Long = getAvgRowSize(dbConf)
+                if (avgRowSize == 0) {
+                    logger.warn("Avg record size is 0")
+                    0
+                } else {
+                    logger.info("Average Row size: {}, difference b/w min-max primary key: {}", avgRowSize, minMaxDiff)
+                    val perTaskRecords = (memory / avgRowSize).toDouble * executorMemoryToDataRatio
+                    logger.info(s"perTaskRows memory=${memory}/avgRowSize=${avgRowSize} * executorMemoryToDataRatio=${executorMemoryToDataRatio} => ${perTaskRecords}")
+                    perTaskRecords.toInt
+                }
+            }
+        }
     }
 
     def closeSparkContext(sparkContext: SparkContext): Unit = {
