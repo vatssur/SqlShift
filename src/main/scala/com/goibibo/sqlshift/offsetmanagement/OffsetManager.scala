@@ -1,5 +1,9 @@
 package com.goibibo.sqlshift.offsetmanagement
 
+import java.util.Properties
+
+import com.goibibo.sqlshift.models.Configurations.Offset
+
 /**
   * Project: sqlshift
   * Author: shivamsharma
@@ -7,14 +11,14 @@ package com.goibibo.sqlshift.offsetmanagement
   *
   * This manager is for maintaining offsets for each table specified in configuration.
   */
-trait OffsetManager {
+abstract class OffsetManager(conf: Properties, tableName: String) {
 
     /**
       * Returns the offset stored for specific table.
       *
       * @return Offset data for table
       */
-    def getOffset(tableName: String): Option[String]
+    def getOffset: Option[Offset]
 
     /**
       * Set the offset value on specified table.
@@ -22,16 +26,16 @@ trait OffsetManager {
       * @param value value to set
       * @return true of successful set or vice versa
       */
-    def setOffset(tableName: String, value: String): Boolean
+    def setOffset(value: Offset): Boolean
 
     /**
       * Get lock on table to prevent concurrent running application migrating same table.
-      * This lock is specific to specific table specified in configuration.
+      * This lock is specific to the table specified in configuration.
       * It returns true for acquiring lock and vice versa.
       *
       * @return
       */
-    def getLock(tableName: String): Boolean
+    def getLock: Boolean
 
     /**
       * Release lock of specific table. Whether a lock is present or not this method
@@ -39,5 +43,5 @@ trait OffsetManager {
       *
       * @return
       */
-    def releaseLock(tableName: String): Unit
+    def releaseLock(): Unit
 }

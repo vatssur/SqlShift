@@ -2,6 +2,7 @@ name := "sqlshift"
 organization := "com.goibibo"
 version := "0.1"
 scalaVersion := "2.10.6"
+logLevel := Level.Info
 
 resolvers ++= Seq(
     "Typesafe" at "http://repo.typesafe.com/typesafe/releases/",
@@ -17,8 +18,7 @@ libraryDependencies ++= Seq(
     "org.apache.spark" %% "spark-core" % "1.6.0" % "provided",
     "org.apache.spark" %% "spark-sql" % "1.6.0" % "provided",
     ("com.databricks" %% "spark-redshift" % "1.1.0").
-            exclude("org.apache.avro", "avro").
-            exclude("org.slf4j", "slf4j-api"),
+            exclude("org.apache.avro", "avro"),
     ("com.amazonaws" % "aws-java-sdk-core" % "1.10.22").
             exclude("com.fasterxml.jackson.core", "jackson-core").
             exclude("com.fasterxml.jackson.core", "jackson-databind").
@@ -36,10 +36,10 @@ libraryDependencies ++= Seq(
             exclude("org.apache.hadoop", "hadoop-common"),
     "com.github.scopt" %% "scopt" % "3.5.0",
     "javax.mail" % "mail" % "1.4.7",
-    ("io.dropwizard" % "dropwizard-metrics" % "1.0.5").
-            exclude("org.slf4j", "slf4j-api"),
-    "com.goibibo" %% "dataplatform_utils" % "1.6"
-)
+    "io.dropwizard" % "dropwizard-metrics" % "1.0.5",
+    "com.goibibo" %% "dataplatform_utils" % "1.6",
+    "ch.qos.logback" % "logback-classic" % "1.2.3"
+).map(_.exclude("org.slf4j", "slf4j-log4j12"))
 
 unmanagedJars in Compile += file("lib/RedshiftJDBC4-1.1.17.1017.jar")
 
