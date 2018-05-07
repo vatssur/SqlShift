@@ -25,13 +25,11 @@ object MySQLToRedshiftMigrator {
         logger.info(s"Found incremental condition. Column: ${column.orNull}, fromOffset: " +
                 s"${fromOffset.orNull}, toOffset: ${toOffset.orNull}")
         if (column.isDefined && fromOffset.isDefined && toOffset.isDefined) {
-            Some(s"$column BETWEEN $fromOffset AND $toOffset")
-        }
-        if (column.isDefined && fromOffset.isDefined) {
-            Some(s"$column >= $fromOffset")
-        }
-        if (column.isDefined && toOffset.isDefined) {
-            Some(s"$column <= $toOffset")
+            Some(s"${column.get} BETWEEN '${fromOffset.get}' AND '${toOffset.get}'")
+        } else if (column.isDefined && fromOffset.isDefined) {
+            Some(s"${column.get} >= '${fromOffset.get}'")
+        } else if (column.isDefined && toOffset.isDefined) {
+            Some(s"${column.get} <= '${toOffset.get}'")
         } else {
             logger.info("Either of column or (fromOffset/toOffset) is not provided")
             None
@@ -120,7 +118,7 @@ object MySQLToRedshiftMigrator {
             case None =>
                 val tableQuery = internalConfig.incrementalSettings match {
                     case Some(incrementalSettings) =>
-                        val whereCondition = getWhereCondition(incrementalSettings)
+                        val whereCondition = getWhereCondition(incrementalSettings).get
                         s"(SELECT * from ${mysqlConfig.tableName} WHERE $whereCondition) AS A"
                     case None => mysqlConfig.tableName
                 }
@@ -255,7 +253,7 @@ object MySQLToRedshiftMigrator {
             s"""DELETE FROM $redshiftTableName USING $redshiftStagingTableName
                |    WHERE $redshiftTableName.$mergeKey = $redshiftStagingTableName.$mergeKey; """.stripMargin +
                     "\n" + {
-                if (customFields.size == 0) {
+                if (customFields.isEmpty) {
                     // Handling columns order mismatch
                     s"""INSERT INTO $redshiftTableName ($tableColumns)
                        |SELECT $tableColumns FROM $redshiftStagingTableName;""".stripMargin

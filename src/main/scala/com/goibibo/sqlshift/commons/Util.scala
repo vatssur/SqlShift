@@ -254,11 +254,11 @@ object Util {
         else
             Some(fromOffsetJValue.extract[String])
 
-        val toOffsetJValue: JValue = table \ "incrementalColumn"
+        val toOffsetJValue: JValue = table \ "toOffset"
         val toOffset: Option[String] = if (toOffsetJValue == JNothing || toOffsetJValue == JNull)
             None
         else
-            Some(incrementalColumnJValue.extract[String])
+            Some(toOffsetJValue.extract[String])
 
         val incrementalSettings: IncrementalSettings = IncrementalSettings(shallMerge = true,mergeKey = mergeKey,
             shallVacuumAfterLoad = shallVacuumAfterLoad, customSelectFromStaging = addColumn, isAppendOnly = isAppendOnly,

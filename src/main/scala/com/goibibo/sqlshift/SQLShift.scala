@@ -140,7 +140,7 @@ object SQLShift {
 
                 val internalConfigNew: InternalConfig = if (offsetManager.isDefined && incSettings.isDefined) {
                     val offset: Option[Offset] = offsetManager.get.getOffset
-`                    val fromOffset = if(incSettings.get.fromOffset.isDefined) offset.get.data else incSettings.get.fromOffset
+                    val fromOffset = if(incSettings.get.fromOffset.isEmpty && offset.isDefined) offset.get.data else incSettings.get.fromOffset
                     configuration.internalConfig.copy(incrementalSettings =Some(incSettings.get.copy(fromOffset = fromOffset)))
                 } else configuration.internalConfig
 
@@ -162,6 +162,10 @@ object SQLShift {
                     finalConfigurations :+= configuration.copy(status = Some(Status(isSuccessful = true, null)),
                         migrationTime = Some(migrationTime))
                     registerGauge(metricName = s"$metricName.migrationSuccess", value = 1)
+                    // Setting Offset in OffsetManager
+                    if (offsetManager.isDefined && incSettings.isDefined && incSettings.get.toOffset.isDefined) {
+                        offsetManager.get.setOffset(Offset(data = incSettings.get.toOffset))
+                    }
                 } catch {
                     case e: Exception =>
                         logger.error("Transfer Failed for configuration: \n{}", configuration, e: Any)

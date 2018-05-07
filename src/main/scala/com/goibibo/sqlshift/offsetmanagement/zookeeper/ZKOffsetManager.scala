@@ -29,7 +29,7 @@ class ZKOffsetManager(conf: Properties, tableName: String) extends OffsetManager
         val maybeKeeper = ZkUtils.connect(zkquoram)
 
         implicit val tempClient: ZooKeeper = maybeKeeper.get
-        val dirs = path.split(PATH_SEPARATOR).filter(_.nonEmpty).toList
+        val dirs = path.split(PATH_SEPARATOR).filter(_.nonEmpty).toList :+ tableName
         var tempDir = ""
         dirs.foreach { dir =>
             tempDir = tempDir + "/" + dir
