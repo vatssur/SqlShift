@@ -1,6 +1,6 @@
 package com.goibibo.sqlshift
 
-import java.io.{File, PrintWriter}
+import java.io.File
 import java.util.Properties
 import java.util.concurrent.TimeUnit
 
@@ -140,8 +140,8 @@ object SQLShift {
 
                 val internalConfigNew: InternalConfig = if (offsetManager.isDefined && incSettings.isDefined) {
                     val offset: Option[Offset] = offsetManager.get.getOffset
-                            configuration.internalConfig.copy(incrementalSettings =
-                                    Some(incSettings.get.copy(fromOffset = offset.get.from, toOffset = offset.get.to)))
+`                    val fromOffset = if(incSettings.get.fromOffset.isDefined) offset.get.data else incSettings.get.fromOffset
+                    configuration.internalConfig.copy(incrementalSettings =Some(incSettings.get.copy(fromOffset = fromOffset)))
                 } else configuration.internalConfig
 
                 sqlContext.sparkContext.setJobDescription(s"$mySqlTableName => $redshiftTableName")

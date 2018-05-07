@@ -25,10 +25,15 @@ object MySQLToRedshiftMigrator {
         logger.info(s"Found incremental condition. Column: ${column.orNull}, fromOffset: " +
                 s"${fromOffset.orNull}, toOffset: ${toOffset.orNull}")
         if (column.isDefined && fromOffset.isDefined && toOffset.isDefined) {
-            val condition = s"$column BETWEEN $fromOffset AND $toOffset"
-            Some(condition)
+            Some(s"$column BETWEEN $fromOffset AND $toOffset")
+        }
+        if (column.isDefined && fromOffset.isDefined) {
+            Some(s"$column >= $fromOffset")
+        }
+        if (column.isDefined && toOffset.isDefined) {
+            Some(s"$column <= $toOffset")
         } else {
-            logger.info("Either of Column or fromOffset or toOffset is not provided")
+            logger.info("Either of column or (fromOffset/toOffset) is not provided")
             None
         }
     }
@@ -157,7 +162,8 @@ object MySQLToRedshiftMigrator {
 
         val redshiftTableName = RedshiftUtil.getTableNameWithSchema(redshiftConf)
         val stagingPrepend = "_staging" + {
-            val r = scala.util.Random; r.nextInt(10000)
+            val r = scala.util.Random;
+            r.nextInt(10000)
         }
         val redshiftStagingTableName = redshiftTableName + stagingPrepend
         val dropTableString = RedshiftUtil.getDropCommand(redshiftConf)

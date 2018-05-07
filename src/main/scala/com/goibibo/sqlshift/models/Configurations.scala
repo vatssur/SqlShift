@@ -53,8 +53,7 @@ private[sqlshift] object Configurations {
     }
 
     case class Offset(
-                             from: Option[String],
-                             to: Option[String]
+                             data: Option[String]
                      )
 
     case class OffsetManagerConf(
