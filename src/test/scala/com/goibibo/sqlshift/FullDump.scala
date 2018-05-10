@@ -1,8 +1,10 @@
 package com.goibibo.sqlshift
 
+import com.goibibo.sqlshift.commons.Util
 import com.typesafe.config.{Config, ConfigFactory}
 import com.whisk.docker.impl.spotify.DockerKitSpotify
 import com.whisk.docker.scalatest.DockerTestKit
+import org.apache.spark.sql.DataFrame
 import org.scalatest.time.{Second, Seconds, Span}
 import org.scalatest.{FlatSpec, GivenWhenThen, Matchers}
 import org.slf4j.{Logger, LoggerFactory}
@@ -25,8 +27,25 @@ class FullDump extends FlatSpec
     private val logger: Logger = LoggerFactory.getLogger(this.getClass)
     implicit val pc: PatienceConfig = PatienceConfig(Span(20, Seconds), Span(1, Second))
     private val config: Config = ConfigFactory.load()
+    private val (sc, sqlContext) = Util.getSparkContext
 
-    val fixtures = new {
+    def readTableFromRedshift(config: Config, tableName: String): DataFrame = {
+        val redshift: Config = config.getConfig("redshift")
+        println(s"jdbc:redshift://${redshift.getString("hostname")}:${redshift.getInt("portno")}/${redshift.getString("database")}")
+        sqlContext
+                .read
+                .format("com.databricks.spark.redshift")
+                .option("user", redshift.getString("username"))
+                .option("password", redshift.getString("password"))
+                .option("jdbcdriver", "com.amazon.redshift.jdbc4.Driver")
+                .option("url", s"jdbc:redshift://${redshift.getString("hostname")}:${redshift.getInt("portno")}/${redshift.getString("database")}")
+                .option("dbtable", tableName)
+                .option("tempdir", config.getString("s3.location"))
+                .load()
+    }
+
+    val data = new {
+
 
     }
 
@@ -43,8 +62,9 @@ class FullDump extends FlatSpec
 
 
     "mongodb node" should "be ready with log line checker" in {
-        Thread.sleep(10000)
+        val dataFrame = readTableFromRedshift(config, "sqlshift.test")
+        dataFrame.show()
         setUpMySQL()
-        Thread.sleep(100000)
+        Thread.sleep(10000)
     }
 }
