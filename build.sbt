@@ -18,8 +18,8 @@ val scalaTestVersion = "3.0.1"
 
 libraryDependencies ++= Seq(
     "mysql" % "mysql-connector-java" % "5.1.39",
-    "org.apache.spark" %% "spark-core" % sparkVersion % "provided",
-    "org.apache.spark" %% "spark-sql" % sparkVersion % "provided",
+    "org.apache.spark" %% "spark-core" % sparkVersion % Provided,
+    "org.apache.spark" %% "spark-sql" % sparkVersion % Provided,
     ("com.databricks" %% "spark-redshift" % "1.1.0").
             exclude("org.apache.avro", "avro"),
     ("com.amazonaws" % "aws-java-sdk-core" % awsSDKVersion).
