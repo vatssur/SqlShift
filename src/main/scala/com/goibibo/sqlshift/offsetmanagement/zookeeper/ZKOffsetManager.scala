@@ -103,4 +103,11 @@ class ZKOffsetManager(conf: Properties, tableName: String) extends OffsetManager
         }
         zkClient.get.close()
     }
+
+    /**
+      * Close connection when finished.
+      */
+    override def close(): Unit = {
+        zkClient.foreach(_.close())
+    }
 }

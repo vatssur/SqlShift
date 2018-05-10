@@ -187,7 +187,7 @@ object MySQLToRedshiftMigrator {
 
         val dropAndCreateTableString = if (shallOverwrite) dropTableString + "\n" + createTableString else createTableString
 
-        val (dropStagingTableString: String, mergeKey: String, shallVaccumAfterLoad: Boolean, customFields: Seq[String]) = {
+        val (dropStagingTableString: String, mergeKey: String, shallVacuumAfterLoad: Boolean, customFields: Seq[String]) = {
             internalConfig.incrementalSettings match {
                 case None =>
                     logger.info("No dropStagingTableString and No vacuum, internalConfig.incrementalSettings is None")
@@ -275,7 +275,7 @@ object MySQLToRedshiftMigrator {
                 _.replace("{{s}}", redshiftStagingTableName)
             }.getOrElse(""),
             dropStagingTableString
-        ).filter(_.trim != "").mkString("\n ;")
+        ).filter(_.trim != "").mkString("\n")
 
         logger.info("Redshift PreActions = {}", preActions)
         logger.info("Redshift PostActions = {}", postActions)
@@ -324,7 +324,7 @@ object MySQLToRedshiftMigrator {
 
         redshiftWriterWithPostActions.save()
         try {
-            if (shallVaccumAfterLoad) {
+            if (shallVacuumAfterLoad) {
                 RedshiftUtil.performVacuum(redshiftConf)
             } else {
                 logger.info("Not opting for Vacuum, shallVacuumAfterLoad is false")

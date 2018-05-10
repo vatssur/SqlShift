@@ -44,4 +44,9 @@ abstract class OffsetManager(conf: Properties, tableName: String) {
       * @return
       */
     def releaseLock(): Unit
+
+    /**
+      * Close connection when finished.
+      */
+    def close(): Unit
 }

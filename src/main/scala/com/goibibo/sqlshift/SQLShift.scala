@@ -172,6 +172,8 @@ object SQLShift {
                         finalConfigurations :+= configuration.copy(status = Some(Status(isSuccessful = false, e)),
                             migrationTime = Some(0.0))
                         incCounter(s"$metricName.migrationFailedRetries")
+                } finally {
+                    offsetManager.foreach(_.close())
                 }
             } else {
                 logger.warn(s"Didn't able to take lock on $redshiftTableName")
