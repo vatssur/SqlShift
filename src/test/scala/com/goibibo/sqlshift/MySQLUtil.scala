@@ -27,7 +27,7 @@ object MySQLUtil {
         DriverManager.getConnection(jdbcUrl, connectionProps)
     }
 
-    def insertRecords(config: Config, inputStream: InputStream): Unit = {
+    def createTableAndInsertRecords(config: Config, inputStream: InputStream): Unit = {
         val records = Source.fromInputStream(inputStream).getLines().toList
         val conn = getMySQLConnection(config)
         val statement = conn.createStatement()
@@ -45,6 +45,5 @@ object MySQLUtil {
             statement.close()
             conn.close()
         }
-
     }
 }

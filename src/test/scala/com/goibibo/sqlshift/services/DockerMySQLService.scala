@@ -1,4 +1,4 @@
-package com.goibibo.sqlshift
+package com.goibibo.sqlshift.services
 
 import com.whisk.docker.{DockerContainer, DockerKit, DockerReadyChecker}
 

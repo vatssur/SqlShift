@@ -42,6 +42,7 @@ libraryDependencies ++= Seq(
     "io.dropwizard" % "dropwizard-metrics" % "1.0.5",
     "com.goibibo" % "dataplatform_utils_2.10" % "1.6",
     "ch.qos.logback" % "logback-classic" % "1.2.3",
+    "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.7.8",
     "org.scalatest" %% "scalatest" % scalaTestVersion % Test,
     "com.whisk" %% "docker-testkit-scalatest" % dockerItScalaVersion % Test,
     "com.whisk" %% "docker-testkit-impl-spotify" % dockerItScalaVersion % Test

@@ -192,7 +192,7 @@ object SQLShift {
       * @param retryCount         Number of retries
       * @return List of configurations with status and transfer time.
       */
-    private def start(sqlContext: SQLContext, pAppConfigurations: PAppConfiguration, retryCount: Int): PAppConfiguration = {
+    def start(sqlContext: SQLContext, pAppConfigurations: PAppConfiguration, retryCount: Int): PAppConfiguration = {
         var finalConfiguration = run(sqlContext, pAppConfigurations)
         (1 to retryCount).foreach { count =>
             if (!Util.anyFailures(finalConfiguration)) {
