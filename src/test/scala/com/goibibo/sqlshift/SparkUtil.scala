@@ -12,16 +12,17 @@ import org.apache.spark.sql.{DataFrame, SQLContext}
   */
 trait SparkUtil {
     def getSparkContext: (SparkContext, SQLContext) = {
-        val sparkConf: SparkConf = new SparkConf().setAppName("Full Dump Testing").setMaster("local[1]")
+        val sparkConf: SparkConf = new SparkConf().setAppName("Full Dump Testing").setMaster("local")
         val sc: SparkContext = new SparkContext(sparkConf)
         val sqlContext: SQLContext = new SQLContext(sc)
 
         System.setProperty("com.amazonaws.services.s3.enableV4", "true")
         sc.hadoopConfiguration.set("fs.s3a.endpoint", "s3.ap-south-1.amazonaws.com")
+        sc.hadoopConfiguration.set("fs.s3a.fast.upload", "true")
         (sc, sqlContext)
     }
 
-    private val (sc, sqlContext) = getSparkContext
+    val (sc, sqlContext) = getSparkContext
 
     def readTableFromRedshift(config: Config, tableName: String): DataFrame = {
         val redshift: Config = config.getConfig("redshift")

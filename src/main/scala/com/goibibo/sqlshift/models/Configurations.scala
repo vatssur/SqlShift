@@ -7,9 +7,7 @@ import com.goibibo.sqlshift.models.InternalConfs.InternalConfig
   * Author: shivamsharma
   * Date: 12/29/16.
   */
-private[sqlshift] sealed trait Configuration
-
-private[sqlshift] object Configurations {
+object Configurations {
 
     case class DBConfiguration(database: String,
                                db: String,
@@ -20,7 +18,7 @@ private[sqlshift] object Configurations {
                                userName: String,
                                password: String,
                                preLoadCmd: Option[String] = None,
-                               postLoadCmd: Option[String] = None) extends Configuration {
+                               postLoadCmd: Option[String] = None) {
 
         override def toString: String = {
             s"""{
@@ -34,7 +32,7 @@ private[sqlshift] object Configurations {
 
     case class S3Config(s3Location: String,
                         accessKey: Option[String],
-                        secretKey: Option[String]) extends Configuration
+                        secretKey: Option[String])
 
 
     case class AppConfiguration(mysqlConf: DBConfiguration,

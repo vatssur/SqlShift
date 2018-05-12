@@ -330,7 +330,7 @@ object MySQLToRedshiftMigrator {
                 logger.info("Not opting for Vacuum, shallVacuumAfterLoad is false")
             }
         } catch {
-            case e: Exception => logger.warn("Vacuum failed for reason: {}", e.getStackTrace.mkString("\n"))
+            case e: Exception => logger.warn("Vacuum failed for reason", e)
         }
     }
 
@@ -369,7 +369,7 @@ object MySQLToRedshiftMigrator {
             addColumnsQuery + deleteColumnQuery
         } catch {
             case e: Exception =>
-                logger.warn("Error occurred while altering table: \n{}", e.getStackTrace.mkString("\n"))
+                logger.warn("Error occurred while altering table", e)
                 ""
         }
     }

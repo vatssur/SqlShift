@@ -77,7 +77,7 @@ class MailAPI(mailParams: MailParams) {
             }
             else {
                 text += "<td bgcolor='#F0FFFF'>%s\n%s</td></tr>"
-                        .format(appConf.status.get.e.getMessage, appConf.status.get.e.getStackTraceString)
+                        .format(appConf.status.get.e.getMessage, appConf.status.get.e.getStackTrace.mkString("\n"))
                 errorCnt += 1
             }
         }

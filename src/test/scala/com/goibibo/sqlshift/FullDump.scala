@@ -1,7 +1,8 @@
 package com.goibibo.sqlshift
 
-import com.goibibo.sqlshift.SQLShift.start
+import com.goibibo.sqlshift.SQLShift
 import com.goibibo.sqlshift.commons.Util
+import com.goibibo.sqlshift.models.Configurations
 import com.goibibo.sqlshift.services.{DockerMySQLService, DockerSparkService, DockerZookeeperService}
 import com.typesafe.config.{Config, ConfigFactory}
 import com.whisk.docker.impl.spotify.DockerKitSpotify
@@ -24,13 +25,11 @@ class FullDump extends FlatSpec
         with DockerKitSpotify
         with DockerMySQLService
         with DockerZookeeperService
-        with DockerSparkService
         with SparkUtil {
 
     private val logger: Logger = LoggerFactory.getLogger(this.getClass)
     implicit val pc: PatienceConfig = PatienceConfig(Span(20, Seconds), Span(1, Second))
     private val config: Config = ConfigFactory.load()
-    private val (sc, sqlContext) = getSparkContext
 
     def setUpMySQL(): Unit = {
         val recordsFileName = config.getString("table.recordsFileName")
@@ -43,14 +42,15 @@ class FullDump extends FlatSpec
         logger.info("Insertion Done!!!")
     }
 
-    def startSqlShift(): Unit = {
+    def startSqlShift(): Configurations.PAppConfiguration  = {
         val url = this.getClass.getClassLoader.getResource("sqlshift.conf")
-        val pAppConfigurations = Util.getAppConfigurations(url.toString)
-        val finalConfigurations = start(sqlContext, pAppConfigurations, 0)
+        val pAppConfigurations = Util.getAppConfigurations(url.getFile)
+        SQLShift.start(sqlContext, pAppConfigurations, 0)
     }
 
     "mongodb node" should "be ready with log line checker" in {
         setUpMySQL()
+        startSqlShift()
         Thread.sleep(10000)
     }
 }

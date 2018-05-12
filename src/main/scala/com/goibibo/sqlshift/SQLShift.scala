@@ -259,7 +259,7 @@ object SQLShift {
             try {
                 new MailAPI(MailUtil.getMailParams(prop)).send(finalConfigurations.configuration.toList)
             } catch {
-                case e: Exception => logger.warn("Failed to send mail with reason: {}", e.getStackTrace.mkString("\n"))
+                case e: Exception => logger.warn("Failed to send mail with reason", e)
             }
         }
 
