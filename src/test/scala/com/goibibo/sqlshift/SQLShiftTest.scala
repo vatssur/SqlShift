@@ -69,7 +69,8 @@ class SQLShiftTest extends FlatSpec
     def startSqlShift(): Configurations.PAppConfiguration = {
         val url = this.getClass.getClassLoader.getResource("sqlshift.conf")
         val pAppConfigurations = Util.getAppConfigurations(url.getFile)
-        SQLShift.start(sqlContext, pAppConfigurations, 0)
+        val pAppConfiguration = SQLShift.start(sqlContext, pAppConfigurations, 0)
+        Util.formattedInfoSection(pAppConfiguration)
     }
 
     override def beforeAll(): Unit = {
@@ -80,14 +81,8 @@ class SQLShiftTest extends FlatSpec
 
     "SQLShift Full Dump to redshift" should "have equal count and have same records" in new PSVData {
         import fixtures._
-        val options = Map("dbtable" -> fullDumpTableName,
-            "user" -> redshift.getString("username"),
-            "password" -> redshift.getString("password"),
-            "url" -> s"jdbc:redshift://${redshift.getString("hostname")}:${redshift.getInt("portno")}/${redshift.getString("database")}",
-            "tempdir" -> config.getString("s3.location"),
-            "aws_iam_role" -> config.getString("redshift.iamRole")
-        )
-        val redshiftFullDumpDataFrame: DataFrame = RedshiftReaderM.getDataFrameForConfig(options, sc, sqlContext)
+        val tableName = config.getString("schema") + "." + fullDumpTableName
+        val redshiftFullDumpDataFrame: DataFrame = readTableFromRedshift(config, tableName)
 
         redshiftFullDumpDataFrame.count should equal(psvFullDumpRdd.count)
         redshiftFullDumpDataFrame.except(psvFullDumpRdd).count() should equal(0)

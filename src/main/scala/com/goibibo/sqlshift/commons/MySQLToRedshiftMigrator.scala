@@ -119,7 +119,7 @@ object MySQLToRedshiftMigrator {
                 val tableQuery = internalConfig.incrementalSettings match {
                     case Some(incrementalSettings) =>
                         val whereCondition = getWhereCondition(incrementalSettings)
-                        s"""(SELECT * from${mysqlConfig.tableName} ${if(whereCondition.isDefined) " WHERE " + whereCondition.get else ""}) AS A"""
+                        s"""(SELECT * from ${mysqlConfig.tableName}${if(whereCondition.isDefined) " WHERE " + whereCondition.get else ""}) AS A"""
                     case None => mysqlConfig.tableName
                 }
                 logger.info("Using single partition read query = {}", tableQuery)
