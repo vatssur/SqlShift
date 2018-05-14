@@ -48,9 +48,13 @@ class FullDump extends FlatSpec
         SQLShift.start(sqlContext, pAppConfigurations, 0)
     }
 
-    "mongodb node" should "be ready with log line checker" in {
+    override def beforeAll(): Unit = {
+        super.beforeAll()
         setUpMySQL()
         startSqlShift()
+    }
+
+    "Sqlshift Full Dump" should " take all data to redshift" in {
         Thread.sleep(10000)
     }
 }
