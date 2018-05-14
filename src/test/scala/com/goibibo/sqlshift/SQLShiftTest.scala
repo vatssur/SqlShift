@@ -39,7 +39,8 @@ class SQLShiftTest extends FlatSpec
         val redshift: Config = config.getConfig("redshift")
         val recordsFileName: String = config.getString("table.recordsFileName")
         val recordsFile: URL = this.getClass.getClassLoader.getResource(recordsFileName)
-        val tableName = "full_dump"
+        val fullDumpTableName = "full_dump"
+        val incrementalTableName = "incremental"
     }
 
     private trait PSVData {
@@ -57,7 +58,7 @@ class SQLShiftTest extends FlatSpec
         logger.info(s"Inserting records in MySQL from file: $recordsFileName")
         isContainerReady(mySQLContainer) onComplete {
             case Success(posts) =>
-                config.getStringList("table.tableNames").asScala.foreach { tableName =>
+                List(fullDumpTableName, incrementalTableName).foreach { tableName =>
                     MySQLUtil.createTableAndInsertRecords(config, tableName, recordsFile)
                 }
             case Failure(t) => logger.error("Error occurred making container ready", t)
@@ -77,9 +78,9 @@ class SQLShiftTest extends FlatSpec
         startSqlShift()
     }
 
-    "Sqlshift Full Dump to redshift" should "have equal count and have same records" in new PSVData {
+    "SQLShift Full Dump to redshift" should "have equal count and have same records" in new PSVData {
         import fixtures._
-        val options = Map("dbtable" -> tableName,
+        val options = Map("dbtable" -> fullDumpTableName,
             "user" -> redshift.getString("username"),
             "password" -> redshift.getString("password"),
             "url" -> s"jdbc:redshift://${redshift.getString("hostname")}:${redshift.getInt("portno")}/${redshift.getString("database")}",
