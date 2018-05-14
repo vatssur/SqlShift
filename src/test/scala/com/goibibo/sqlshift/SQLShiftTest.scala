@@ -69,14 +69,14 @@ class SQLShiftTest extends FlatSpec
     def startSqlShift(): Configurations.PAppConfiguration = {
         val url = this.getClass.getClassLoader.getResource("sqlshift.conf")
         val pAppConfigurations = Util.getAppConfigurations(url.getFile)
-        val pAppConfiguration = SQLShift.start(sqlContext, pAppConfigurations, 0)
-        Util.formattedInfoSection(pAppConfiguration)
+        SQLShift.start(sqlContext, pAppConfigurations, 0)
     }
 
     override def beforeAll(): Unit = {
         super.beforeAll()
         setUpMySQL()
-        startSqlShift()
+        val pAppConfiguration = startSqlShift()
+        logger.info("\n{}", Util.formattedInfoSection(pAppConfiguration))
     }
 
     "SQLShift Full Dump to redshift" should "have equal count and have same records" in new PSVData {
