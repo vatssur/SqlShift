@@ -118,8 +118,8 @@ object MySQLToRedshiftMigrator {
             case None =>
                 val tableQuery = internalConfig.incrementalSettings match {
                     case Some(incrementalSettings) =>
-                        val whereCondition = getWhereCondition(incrementalSettings).get
-                        s"(SELECT * from ${mysqlConfig.tableName} WHERE $whereCondition) AS A"
+                        val whereCondition = getWhereCondition(incrementalSettings)
+                        s"""(SELECT * from${mysqlConfig.tableName} ${if(whereCondition.isDefined) " WHERE " + whereCondition.get else ""}) AS A"""
                     case None => mysqlConfig.tableName
                 }
                 logger.info("Using single partition read query = {}", tableQuery)
@@ -160,7 +160,7 @@ object MySQLToRedshiftMigrator {
 
         val redshiftTableName = RedshiftUtil.getTableNameWithSchema(redshiftConf)
         val stagingPrepend = "_staging" + {
-            val r = scala.util.Random;
+            val r = scala.util.Random
             r.nextInt(10000)
         }
         val redshiftStagingTableName = redshiftTableName + stagingPrepend
