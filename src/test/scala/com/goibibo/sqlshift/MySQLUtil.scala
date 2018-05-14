@@ -1,6 +1,6 @@
 package com.goibibo.sqlshift
 
-import java.io.InputStream
+import java.net.URL
 import java.sql.{Connection, DriverManager}
 import java.util.Properties
 
@@ -27,15 +27,18 @@ object MySQLUtil {
         DriverManager.getConnection(jdbcUrl, connectionProps)
     }
 
-    def createTableAndInsertRecords(config: Config, inputStream: InputStream): Unit = {
-        val records = Source.fromInputStream(inputStream).getLines().toList
+    def createTableAndInsertRecords(config: Config, tableName: String, psvFile: URL): Unit = {
+        logger.info("Inserting records in table: {}", tableName)
+        val records = Source.fromFile(psvFile.toURI).getLines().toList.drop(1) // removing header
+
         val conn = getMySQLConnection(config)
         val statement = conn.createStatement()
         try {
-            val tableCreateQuery = config.getString("table.tableCreateQuery")
+            val tableCreateQuery = config.getString("table.tableCreateQuery").replace("${tableName}", tableName)
+            logger.info("Running query: {}", tableCreateQuery)
             statement.executeUpdate(tableCreateQuery)
-            val insertIntoQuery = config.getString("table.insertIntoQuery")
-            println(insertIntoQuery)
+            val insertIntoQuery = config.getString("table.insertIntoQuery").replace("${tableName}", tableName)
+            logger.info("Running query: {}", insertIntoQuery)
             records.foreach { record: String =>
                 val columns = record.split("\\|")
                 val query = insertIntoQuery.format(columns: _*)

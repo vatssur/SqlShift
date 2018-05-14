@@ -45,7 +45,8 @@ libraryDependencies ++= Seq(
     "com.fasterxml.jackson.module" %% "jackson-module-scala" % "2.7.8",
     "org.scalatest" %% "scalatest" % scalaTestVersion % Test,
     "com.whisk" %% "docker-testkit-scalatest" % dockerItScalaVersion % Test,
-    "com.whisk" %% "docker-testkit-impl-spotify" % dockerItScalaVersion % Test
+    "com.whisk" %% "docker-testkit-impl-spotify" % dockerItScalaVersion % Test,
+    "com.databricks" %% "spark-csv" % "1.1.0" % Test
 ).map(_.exclude("org.slf4j", "slf4j-log4j12"))
 
 envVars in Test := Map("DOCKER_HOST" -> "unix:///var/run/docker.sock")
