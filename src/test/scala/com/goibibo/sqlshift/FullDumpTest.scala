@@ -13,7 +13,8 @@ import org.scalatest.time.{Second, Seconds, Span}
 import org.scalatest.{FlatSpec, GivenWhenThen, Matchers}
 import org.slf4j.{Logger, LoggerFactory}
 
-import scala.util.{Failure, Success}
+import scala.concurrent.Await
+import scala.concurrent.duration._
 
 /**
   * Project: sqlshift
@@ -59,18 +60,19 @@ class FullDumpTest extends FlatSpec
     def setUpMySQL(): Unit = {
         import fixtures._
         logger.info(s"Inserting records in MySQL from file: $recordsFileName")
-        isContainerReady(mySQLContainer) onComplete {
-            case Success(posts) =>
-                listOfTables.foreach { tableName =>
-                    MySQLUtil.createTableAndInsertRecords(config, tableName, recordsFile)
-                }
-            case Failure(t) => logger.error("Error occurred making container ready", t)
+        val isContainerReadyBool = Await.result(isContainerReady(mySQLContainer), 20 seconds)
+        if (isContainerReadyBool) {
+            listOfTables.foreach { tableName =>
+                MySQLUtil.createTableAndInsertRecords(config, tableName, recordsFile)
+            }
+        }
+        else {
+            logger.error("Error occurred making container ready")
         }
         logger.info("Insertion Done!!!")
     }
 
     def startSqlShift(): Configurations.PAppConfiguration = {
-
         val url = this.getClass.getClassLoader.getResource("full_dump.conf")
         fixtures.pAppConfiguration = Util.getAppConfigurations(url.getFile)
         SQLShift.start(sqlContext, fixtures.pAppConfiguration, 0)

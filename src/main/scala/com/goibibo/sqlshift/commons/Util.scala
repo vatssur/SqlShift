@@ -260,9 +260,15 @@ object Util {
         else
             Some(toOffsetJValue.extract[String])
 
-        val incrementalSettings: IncrementalSettings = IncrementalSettings(shallMerge = true,mergeKey = mergeKey,
+        val shallMergeJValue: JValue = table \ "shallMerge"
+        val shallMerge: Boolean = if (shallMergeJValue == JNothing || shallMergeJValue == JNull)
+            false
+        else
+            toOffsetJValue.extract[Boolean]
+
+        val incrementalSettings: IncrementalSettings = IncrementalSettings(shallMerge = shallMerge, mergeKey = mergeKey,
             shallVacuumAfterLoad = shallVacuumAfterLoad, customSelectFromStaging = addColumn, isAppendOnly = isAppendOnly,
-            incrementalColumn, fromOffset, toOffset)
+            incrementalColumn = incrementalColumn, fromOffset = fromOffset, toOffset = toOffset)
 
         val settings: Some[IncrementalSettings] = Some(incrementalSettings)
         internalConfig = InternalConfig(shallSplit = Some(isSplittable), distKey = distKey, incrementalSettings = settings,
