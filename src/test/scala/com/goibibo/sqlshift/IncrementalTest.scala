@@ -118,7 +118,7 @@ class IncrementalTest extends FlatSpec
         val tableName: String = config.getString("redshift.schema") + "." + splitTableWithDistKey
         logger.info(s"Fetching table $tableName from redshift.")
         val redshiftFullDumpDataFrame: DataFrame = readTableFromRedshift(config, tableName)
-        private val newDataFrame: DataFrame = psvFullDumpRdd.where(s"""$columnName <= "$firstToOffset"""")
+        private val newDataFrame: DataFrame = psvFullDumpRdd.where(s"""$columnName <= "$secondToOffset"""")
         redshiftFullDumpDataFrame.count should equal(newDataFrame.count)
     }
 
@@ -140,7 +140,7 @@ class IncrementalTest extends FlatSpec
         val tableName: String = config.getString("redshift.schema") + "." + splitTableWithoutDistKey
         logger.info(s"Fetching table $tableName from redshift.")
         val redshiftFullDumpDataFrame: DataFrame = readTableFromRedshift(config, tableName)
-        private val newDataFrame: DataFrame = psvFullDumpRdd.where(s"""$columnName <= "$secondToOffset"""")
+        private val newDataFrame: DataFrame = psvFullDumpRdd.where(s"""$columnName <= "$firstToOffset"""")
         redshiftFullDumpDataFrame.count should equal(newDataFrame.count)
     }
 
