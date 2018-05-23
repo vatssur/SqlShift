@@ -203,8 +203,11 @@ object RedshiftUtil {
                 }
 
                 resPrimaryKeys.close()
-                if (primaryKeys.size != 1) {
-                    logger.error(s"Found multiple primary keys, Not taking any. ${primaryKeys.mkString(",")}")
+                if (primaryKeys.isEmpty) {
+                    logger.error(s"Found no primary keys...")
+                    None
+                } else if(primaryKeys.size > 1) {
+                    logger.error(s"Found multiple primary keys therefore not picking up any: ${primaryKeys.mkString(",")}")
                     None
                 } else {
                     logger.info(s"Found primary keys, distribution key is. ${primaryKeys.toSeq.head}")
