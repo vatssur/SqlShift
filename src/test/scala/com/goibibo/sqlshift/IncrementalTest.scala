@@ -77,7 +77,7 @@ class IncrementalTest extends FlatSpec
     }
 
     def startSqlShift(): Configurations.PAppConfiguration = {
-        val url = this.getClass.getClassLoader.getResource("full_dump.conf")
+        val url = this.getClass.getClassLoader.getResource("incremental.conf")
         fixtures.pAppConfiguration = Util.getAppConfigurations(url.getFile)
         SQLShift.start(sqlContext, fixtures.pAppConfiguration, 0)
     }
