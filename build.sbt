@@ -52,6 +52,7 @@ libraryDependencies ++= Seq(
 envVars in Test := Map("DOCKER_HOST" -> "unix:///var/run/docker.sock")
 
 unmanagedJars in Compile += file("lib/RedshiftJDBC4-1.1.17.1017.jar")
+parallelExecution in Test := false
 
 scalacOptions ++= Seq(
     "-encoding", "UTF-8",
