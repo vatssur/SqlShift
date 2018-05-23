@@ -4,21 +4,25 @@ import java.sql.{Connection, DriverManager}
 import java.util.Properties
 
 import com.databricks.spark.redshift.RedshiftReaderM
-import com.goibibo.sqlshift.MySQLUtil.{getMySQLConnection, logger}
 import com.typesafe.config.Config
-import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.sql.{DataFrame, SQLContext}
+import org.apache.spark.{SparkConf, SparkContext}
+import org.scalatest.{BeforeAndAfterAll, Suite}
 import org.slf4j.{Logger, LoggerFactory}
-
-import scala.io.Source
 
 /**
   * Project: sqlshift
   * Author: shivamsharma
   * Date: 5/10/18.
   */
-trait SparkNRedshiftUtil {
+trait SparkNRedshiftUtil extends BeforeAndAfterAll {
+    self: Suite =>
     private val logger: Logger = LoggerFactory.getLogger(this.getClass)
+    @transient private var _sc: SparkContext = _
+    @transient private var _sqlContext: SQLContext = _
+
+    def sc: SparkContext = _sc
+    def sqlContext: SQLContext = _sqlContext
 
     private def getRedshiftConnection(config: Config): Connection = {
         val mysql = config.getConfig("redshift")
@@ -30,7 +34,7 @@ trait SparkNRedshiftUtil {
         DriverManager.getConnection(jdbcUrl, connectionProps)
     }
 
-    def getSparkContext: (SparkContext, SQLContext) = {
+    val getSparkContext: (SparkContext, SQLContext) = {
         val sparkConf: SparkConf = new SparkConf().setAppName("Full Dump Testing").setMaster("local")
         val sc: SparkContext = new SparkContext(sparkConf)
         val sqlContext: SQLContext = new SQLContext(sc)
@@ -40,8 +44,6 @@ trait SparkNRedshiftUtil {
         sc.hadoopConfiguration.set("fs.s3a.fast.upload", "true")
         (sc, sqlContext)
     }
-
-    lazy val (sc, sqlContext) = getSparkContext
 
     def readTableFromRedshift(config: Config, tableName: String): DataFrame = {
         val redshift: Config = config.getConfig("redshift")
@@ -55,7 +57,7 @@ trait SparkNRedshiftUtil {
         RedshiftReaderM.getDataFrameForConfig(options, sc, sqlContext)
     }
 
-    def dropTableRedshift(config: Config, tables: String*): Unit ={
+    def dropTableRedshift(config: Config, tables: String*): Unit = {
         logger.info("Droping table: {}", tables)
         val conn = getRedshiftConnection(config)
         val statement = conn.createStatement()
@@ -67,5 +69,17 @@ trait SparkNRedshiftUtil {
             statement.close()
             conn.close()
         }
+    }
+
+    override protected def beforeAll(): Unit = {
+        super.beforeAll()
+        val (sc, sqlContext) = getSparkContext
+        _sc = sc
+        _sqlContext = sqlContext
+    }
+
+    override protected def afterAll(): Unit = {
+        super.afterAll()
+        _sc.stop()
     }
 }
