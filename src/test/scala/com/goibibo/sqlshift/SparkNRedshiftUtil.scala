@@ -41,7 +41,7 @@ trait SparkNRedshiftUtil {
         (sc, sqlContext)
     }
 
-    val (sc, sqlContext) = getSparkContext
+    lazy val (sc, sqlContext) = getSparkContext
 
     def readTableFromRedshift(config: Config, tableName: String): DataFrame = {
         val redshift: Config = config.getConfig("redshift")
