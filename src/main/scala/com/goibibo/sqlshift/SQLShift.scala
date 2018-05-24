@@ -134,6 +134,7 @@ object SQLShift {
                 logger.info(s"Try taking lock on redshift table: $redshiftTableName")
                 Some(offsetManager.get.getLock)
             } else None
+            logger.info(s"Locking status for redshift table $redshiftTableName is $isLockedSuccessful")
 
             if (isLockedSuccessful.isEmpty || isLockedSuccessful.get) {
                 val incSettings: Option[IncrementalSettings] = configuration.internalConfig.incrementalSettings

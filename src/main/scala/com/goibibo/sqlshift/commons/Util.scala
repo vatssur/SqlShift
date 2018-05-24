@@ -264,7 +264,7 @@ object Util {
         val shallMerge: Boolean = if (shallMergeJValue == JNothing || shallMergeJValue == JNull)
             false
         else
-            toOffsetJValue.extract[Boolean]
+            shallMergeJValue.extract[Boolean]
 
         val incrementalSettings: IncrementalSettings = IncrementalSettings(shallMerge = shallMerge, mergeKey = mergeKey,
             shallVacuumAfterLoad = shallVacuumAfterLoad, customSelectFromStaging = addColumn, isAppendOnly = isAppendOnly,
