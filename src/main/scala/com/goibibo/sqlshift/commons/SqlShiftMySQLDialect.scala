@@ -2,6 +2,7 @@ package com.goibibo.sqlshift.commons
 
 
 import java.sql.Types
+
 import org.apache.spark.sql.jdbc.{JdbcDialect, JdbcDialects}
 import org.apache.spark.sql.types.{DataType, IntegerType, LongType, MetadataBuilder}
 

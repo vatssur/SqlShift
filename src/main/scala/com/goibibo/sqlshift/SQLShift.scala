@@ -1,19 +1,23 @@
 package com.goibibo.sqlshift
 
-import java.io.{File, PrintWriter}
+import java.io.File
 import java.util.Properties
 import java.util.concurrent.TimeUnit
 
 import com.goibibo.sqlshift.alerting.{MailAPI, MailUtil}
 import com.goibibo.sqlshift.commons.MetricsWrapper._
 import com.goibibo.sqlshift.commons.{MySQLToRedshiftMigrator, Util}
-import com.goibibo.sqlshift.models.Configurations.AppConfiguration
-import com.goibibo.sqlshift.models.InternalConfs.TableDetails
+import com.goibibo.sqlshift.models.Configurations.{AppConfiguration, Offset, PAppConfiguration}
+import com.goibibo.sqlshift.models.InternalConfs._
 import com.goibibo.sqlshift.models.Params.AppParams
-import com.goibibo.sqlshift.models.Status
+import com.goibibo.sqlshift.models.{Configurations, Status}
+import com.goibibo.sqlshift.offsetmanagement.OffsetManager
+import com.goibibo.sqlshift.offsetmanagement.zookeeper.ZKOffsetManager
 import org.apache.spark.sql.{DataFrame, SQLContext}
 import org.slf4j.{Logger, LoggerFactory}
 import scopt.OptionParser
+
+import scala.collection.JavaConverters._
 
 /**
   * Entry point to RDS to Redshift data pipeline
@@ -72,62 +76,125 @@ object SQLShift {
                     .text("Usage Of arguments")
         }
 
+    def getOffsetManager(pAppConfiguration: PAppConfiguration, tableName: String): Option[OffsetManager] = {
+        if (pAppConfiguration.offsetManager.isDefined) {
+            val offsetMangerConf: Configurations.OffsetManagerConf = pAppConfiguration.offsetManager.get
+            if (offsetMangerConf.`type`.isDefined && offsetMangerConf.`type`.get == "zookeeper") {
+                if (offsetMangerConf.prop.isDefined && offsetMangerConf.prop.get.contains("zkquoram")
+                        && offsetMangerConf.prop.get.contains("path")) {
+                    logger.info("Initiating zookeeper offset manager...")
+                    val prop = new Properties()
+                    prop.putAll(offsetMangerConf.prop.get.asJava)
+                    Some(new ZKOffsetManager(prop, tableName))
+                }
+                else {
+                    logger.warn("Required details are not present. zkquoram & path are mandatory for zookeeper " +
+                            "offset manager in prop.")
+                    None
+                }
+            } else if (offsetMangerConf.`class`.isDefined) {
+                val prop = new Properties()
+                prop.putAll(offsetMangerConf.prop.getOrElse(Map[String, String]()).asJava)
+                val args = Array[AnyRef](prop, tableName)
+                val offsetManager = Class.forName(offsetMangerConf.`class`.get)
+                        .getConstructor(classOf[Properties], classOf[String])
+                        .newInstance(args: _*).asInstanceOf[OffsetManager]
+                Some(offsetManager)
+            } else {
+                logger.warn("No field is found to Initiate Offset Manager. Please add type or class...")
+                None
+            }
+        } else {
+            logger.info("No Offset Manager is defined...")
+            None
+        }
+    }
+
     /**
       * Transfer tables provided in configurations and return list of configurations with status and transfer time.
       *
-      * @param sqlContext     Spark sql context
-      * @param configurations List of configurations which needs to be executed
+      * @param sqlContext        Spark sql context
+      * @param pAppConfiguration List of configurations which needs to be executed
+      * @param isReRun           run only failed configurations
       * @return List of configurations with status and transfer time.
       */
-    def run(sqlContext: SQLContext, configurations: Seq[AppConfiguration]): Seq[AppConfiguration] = {
+    def run(sqlContext: SQLContext, pAppConfiguration: PAppConfiguration, isReRun: Boolean = false): PAppConfiguration = {
         implicit val crashOnInvalidValue: Boolean = true
         var finalConfigurations: Seq[AppConfiguration] = Seq[AppConfiguration]()
 
-        for (configuration <- configurations) {
+        pAppConfiguration.configuration.filter { p =>
+            !isReRun || p.status.isEmpty || !p.status.get.isSuccessful
+        }.foreach { configuration: AppConfiguration =>
             logger.info("Configuration: \n{}", configuration.toString)
             val mySqlTableName = s"${configuration.mysqlConf.db}.${configuration.mysqlConf.tableName}"
             val redshiftTableName = s"${configuration.redshiftConf.schema}.${configuration.mysqlConf.tableName}"
-            sqlContext.sparkContext.setJobDescription(s"$mySqlTableName => $redshiftTableName")
-            val metricName = mySqlTableName + s".${configuration.redshiftConf.schema}"
-            try {
-                val context = getTimerMetrics(s"$metricName.migrationMetrics")
-                // Loading table
-                val loadedTable: (DataFrame, TableDetails) = MySQLToRedshiftMigrator.loadToSpark(configuration.mysqlConf,
-                    sqlContext, configuration.internalConfig)
+
+            val offsetManager = getOffsetManager(pAppConfiguration, redshiftTableName)
+            val isLockedSuccessful: Option[Boolean] = if (offsetManager.isDefined) {
+                logger.info(s"Try taking lock on redshift table: $redshiftTableName")
+                Some(offsetManager.get.getLock)
+            } else None
+            logger.info(s"Locking status for redshift table $redshiftTableName is $isLockedSuccessful")
+
+            if (isLockedSuccessful.isEmpty || isLockedSuccessful.get) {
+                val incSettings: Option[IncrementalSettings] = configuration.internalConfig.incrementalSettings
+
+                val internalConfigNew: InternalConfig = if (offsetManager.isDefined && incSettings.isDefined) {
+                    val offset: Option[Offset] = offsetManager.get.getOffset
+                    val fromOffset = if(incSettings.get.fromOffset.isEmpty && offset.isDefined) offset.get.data else incSettings.get.fromOffset
+                    configuration.internalConfig.copy(incrementalSettings =Some(incSettings.get.copy(fromOffset = fromOffset)))
+                } else configuration.internalConfig
+
+                sqlContext.sparkContext.setJobDescription(s"$mySqlTableName => $redshiftTableName")
+                val metricName = mySqlTableName + s".${configuration.redshiftConf.schema}"
+                try {
+                    val context = getTimerMetrics(s"$metricName.migrationMetrics")
+                    // Loading table
+                    val loadedTable: (DataFrame, TableDetails) = MySQLToRedshiftMigrator.loadToSpark(configuration.mysqlConf,
+                        sqlContext, internalConfigNew)
                     if (loadedTable._1 != null) {
                         // Storing table to redshift
                         MySQLToRedshiftMigrator.storeToRedshift(loadedTable._1, loadedTable._2,
                             configuration.redshiftConf, configuration.s3Conf, sqlContext,
-                            configuration.internalConfig)
-
+                            internalConfigNew)
                     }
-                val migrationTime: Double = TimeUnit.NANOSECONDS.toMillis(context.stop()) / 1000.0
-                logger.info("Successful transfer for configuration\n{}", configuration.toString)
-                finalConfigurations :+= configuration.copy(status = Some(Status(isSuccessful = true, null)),
-                    migrationTime = Some(migrationTime))
-                registerGauge(metricName = s"$metricName.migrationSuccess", value = 1)
-            } catch {
-                case e: Exception =>
-                    logger.error("Transfer Failed for configuration: \n{}", configuration)
-                    logger.error("Stack Trace: {} ", org.apache.commons.lang.exception.ExceptionUtils.getStackTrace(e))
-                    finalConfigurations :+= configuration.copy(status = Some(Status(isSuccessful = false, e)),
-                        migrationTime = Some(0.0))
-                    incCounter(s"$metricName.migrationFailedRetries")
+                    val migrationTime: Double = TimeUnit.NANOSECONDS.toMillis(context.stop()) / 1000.0
+                    logger.info("Successful transfer for configuration\n{}", configuration.toString)
+                    finalConfigurations :+= configuration.copy(status = Some(Status(isSuccessful = true, null)),
+                        migrationTime = Some(migrationTime))
+                    registerGauge(metricName = s"$metricName.migrationSuccess", value = 1)
+                    // Setting Offset in OffsetManager
+                    if (offsetManager.isDefined && incSettings.isDefined && incSettings.get.toOffset.isDefined) {
+                        offsetManager.get.setOffset(Offset(data = incSettings.get.toOffset))
+                    }
+                } catch {
+                    case e: Exception =>
+                        logger.error("Transfer Failed for configuration: \n{}", configuration, e: Any)
+                        finalConfigurations :+= configuration.copy(status = Some(Status(isSuccessful = false, e)),
+                            migrationTime = Some(0.0))
+                        incCounter(s"$metricName.migrationFailedRetries")
+                } finally {
+                    offsetManager.foreach(_.close())
+                }
+            } else {
+                logger.warn(s"Didn't able to take lock on $redshiftTableName")
+                finalConfigurations :+= configuration.copy(status = Some(Status(isSuccessful = false, null)),
+                    migrationTime = Some(0.0))
             }
         }
-        finalConfigurations
+        pAppConfiguration.copy(configuration = finalConfigurations)
     }
 
     /**
       * Start table transfers from source to destination(Redshift).
       *
-      * @param sqlContext     Spark SQL Context
-      * @param configurations List of configurations which needs to be executed
-      * @param retryCount     Number of retries
+      * @param sqlContext         Spark SQL Context
+      * @param pAppConfigurations List of configurations which needs to be executed
+      * @param retryCount         Number of retries
       * @return List of configurations with status and transfer time.
       */
-    private def start(sqlContext: SQLContext, configurations: Seq[AppConfiguration], retryCount: Int): Seq[AppConfiguration] = {
-        var finalConfiguration = run(sqlContext, configurations)
+    def start(sqlContext: SQLContext, pAppConfigurations: PAppConfiguration, retryCount: Int): PAppConfiguration = {
+        var finalConfiguration = run(sqlContext, pAppConfigurations)
         (1 to retryCount).foreach { count =>
             if (!Util.anyFailures(finalConfiguration)) {
                 logger.info("All failed tables are successfully transferred!!!")
@@ -135,11 +202,9 @@ object SQLShift {
             } else {
                 logger.info("Retrying with count: {}", count)
                 Util.exponentialPause(count)
-                val fAndS = Util.failedAndSuccessConfigurations(finalConfiguration)
-                val rerunConfigurations = run(sqlContext, fAndS._1)
-                finalConfiguration = fAndS._2 ++  rerunConfigurations
+                finalConfiguration = run(sqlContext, finalConfiguration, isReRun = true)
             }
-            incCounter(s"$count.FailedTransferRetry", Util.failedAndSuccessConfigurations(finalConfiguration)._1.size.toLong)
+            incCounter(s"$count.FailedTransferRetry", Util.failedAndSuccessConfigurations(finalConfiguration.configuration)._1.size.toLong)
         }
         finalConfiguration
     }
@@ -169,20 +234,15 @@ object SQLShift {
         val (_, sqlContext) = Util.getSparkContext
 
         logger.info("Getting all configurations")
-        val configurations: Seq[AppConfiguration] = Util.getAppConfigurations(appParams.tableDetailsPath)
+        val pAppConfigurations = Util.getAppConfigurations(appParams.tableDetailsPath)
 
-        logger.info("Total number of tables to transfer are : {}", configurations.length)
+        logger.info("Total number of tables to transfer are : {}", pAppConfigurations.configuration.length)
 
-        incCounter("NumberOFTables", configurations.size.toLong)
-        val finalConfigurations = start(sqlContext, configurations, retryCount = appParams.retryCount)
+        incCounter("NumberOFTables", pAppConfigurations.configuration.size.toLong)
+        val finalConfigurations = start(sqlContext, pAppConfigurations, retryCount = appParams.retryCount)
         if (Util.anyFailures(finalConfigurations)) {
-            val failedConfigurations = Util.failedAndSuccessConfigurations(finalConfigurations)._1
+            val failedConfigurations = Util.failedAndSuccessConfigurations(finalConfigurations.configuration)._1
             logger.info("Failed transfers: {}", failedConfigurations.size)
-             val configurationString = Util.createJsonConfiguration(failedConfigurations)
-             new PrintWriter("failed.json") {
-                 write(configurationString)
-                 close()
-             }
         }
 
         //Closing Spark Context
@@ -198,9 +258,9 @@ object SQLShift {
             prop.load(new File(appParams.mailDetailsPath).toURI.toURL.openStream())
             // Sending mail
             try {
-                new MailAPI(MailUtil.getMailParams(prop)).send(finalConfigurations.toList)
+                new MailAPI(MailUtil.getMailParams(prop)).send(finalConfigurations.configuration.toList)
             } catch {
-                case e: Exception => logger.warn("Failed to send mail with reason: {}", e.getStackTrace.mkString("\n"))
+                case e: Exception => logger.warn("Failed to send mail with reason", e)
             }
         }
 

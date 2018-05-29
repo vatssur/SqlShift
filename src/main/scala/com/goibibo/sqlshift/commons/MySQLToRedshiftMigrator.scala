@@ -18,6 +18,24 @@ import scala.collection.immutable.Seq
 object MySQLToRedshiftMigrator {
     private val logger: Logger = LoggerFactory.getLogger(MySQLToRedshiftMigrator.getClass)
 
+    private def getWhereCondition(incrementalSettings: IncrementalSettings): Option[String] = {
+        val column = incrementalSettings.incrementalColumn
+        val fromOffset = incrementalSettings.fromOffset
+        val toOffset = incrementalSettings.toOffset
+        logger.info(s"Found incremental condition. Column: ${column.orNull}, fromOffset: " +
+                s"${fromOffset.orNull}, toOffset: ${toOffset.orNull}")
+        if (column.isDefined && fromOffset.isDefined && toOffset.isDefined) {
+            Some(s"${column.get} BETWEEN '${fromOffset.get}' AND '${toOffset.get}'")
+        } else if (column.isDefined && fromOffset.isDefined) {
+            Some(s"${column.get} >= '${fromOffset.get}'")
+        } else if (column.isDefined && toOffset.isDefined) {
+            Some(s"${column.get} <= '${toOffset.get}'")
+        } else {
+            logger.info("Either of column or (fromOffset/toOffset) is not provided")
+            None
+        }
+    }
+
     /**
       * Load table in spark.
       *
@@ -49,10 +67,9 @@ object MySQLToRedshiftMigrator {
 
                             val whereCondition = internalConfig.incrementalSettings match {
                                 case Some(incrementalSettings) =>
-                                    logger.info("Found where condition {}", incrementalSettings.whereCondition)
-                                    Some(incrementalSettings.whereCondition)
+                                    getWhereCondition(incrementalSettings)
                                 case None =>
-                                    logger.info("Found no where condition ")
+                                    logger.info("No incremental condition found")
                                     None
                             }
 
@@ -101,8 +118,8 @@ object MySQLToRedshiftMigrator {
             case None =>
                 val tableQuery = internalConfig.incrementalSettings match {
                     case Some(incrementalSettings) =>
-                        val whereCondition = incrementalSettings.whereCondition
-                        s"(SELECT * from ${mysqlConfig.tableName} WHERE $whereCondition) AS A"
+                        val whereCondition = getWhereCondition(incrementalSettings)
+                        s"""(SELECT * from ${mysqlConfig.tableName}${if(whereCondition.isDefined) " WHERE " + whereCondition.get else ""}) AS A"""
                     case None => mysqlConfig.tableName
                 }
                 logger.info("Using single partition read query = {}", tableQuery)
@@ -136,19 +153,22 @@ object MySQLToRedshiftMigrator {
 
         logger.info("Storing to Redshift")
         logger.info("Redshift Details: \n{}", redshiftConf.toString)
-        if(s3Conf.accessKey.isDefined && s3Conf.secretKey.isDefined) {
-            sqlContext.sparkContext.hadoopConfiguration.set("fs.s3a.access.key", s3Conf.accessKey.get)    
+        if (s3Conf.accessKey.isDefined && s3Conf.secretKey.isDefined) {
+            sqlContext.sparkContext.hadoopConfiguration.set("fs.s3a.access.key", s3Conf.accessKey.get)
             sqlContext.sparkContext.hadoopConfiguration.set("fs.s3a.secret.key", s3Conf.secretKey.get)
         }
-        
+
         val redshiftTableName = RedshiftUtil.getTableNameWithSchema(redshiftConf)
-        val stagingPrepend = "_staging" + { val r = scala.util.Random; r.nextInt(10000) }
-        val redshiftStagingTableName = redshiftTableName + stagingPrepend 
+        val stagingPrepend = "_staging" + {
+            val r = scala.util.Random
+            r.nextInt(10000)
+        }
+        val redshiftStagingTableName = redshiftTableName + stagingPrepend
         val dropTableString = RedshiftUtil.getDropCommand(redshiftConf)
         logger.info("dropTableString {}", dropTableString)
         val createTableString = RedshiftUtil.getCreateTableString(tableDetails, redshiftConf)
         //val redshiftStagingConf = redshiftConf.copy(tableName = redshiftConf.tableName + stagingPrepend)
-        val createStagingTableString = RedshiftUtil.getCreateTableString(tableDetails, redshiftConf,  Some(redshiftStagingTableName))
+        val createStagingTableString = RedshiftUtil.getCreateTableString(tableDetails, redshiftConf, Some(redshiftStagingTableName))
         logger.info("createTableString {}", createTableString)
         val shallOverwrite = internalConfig.shallOverwrite match {
             case None =>
@@ -167,15 +187,15 @@ object MySQLToRedshiftMigrator {
 
         val dropAndCreateTableString = if (shallOverwrite) dropTableString + "\n" + createTableString else createTableString
 
-        val (dropStagingTableString: String, mergeKey: String, shallVaccumAfterLoad: Boolean, customFields:Seq[String]) = {
+        val (dropStagingTableString: String, mergeKey: String, shallVacuumAfterLoad: Boolean, customFields: Seq[String]) = {
             internalConfig.incrementalSettings match {
                 case None =>
                     logger.info("No dropStagingTableString and No vacuum, internalConfig.incrementalSettings is None")
                     ("", "", false, Seq[String]())
-                case Some(IncrementalSettings(whereCondition, shallMerge, stagingTableMergeKey, vaccumAfterLoad, cs, true)) =>
+                case Some(IncrementalSettings(shallMerge, stagingTableMergeKey, vaccumAfterLoad, cs, true, incrementalColumn, fromOffset, toOffset)) =>
                     logger.info("Incremental update is append only")
                     ("", "", false, Seq[String]())
-                case Some(IncrementalSettings(whereCondition, shallMerge, stagingTableMergeKey, vaccumAfterLoad, cs, false)) =>
+                case Some(IncrementalSettings(shallMerge, stagingTableMergeKey, vaccumAfterLoad, cs, false, incrementalColumn, fromOffset, toOffset)) =>
                     val dropStatingTableStr = if (shallMerge) s"DROP TABLE IF EXISTS $redshiftStagingTableName;" else ""
                     logger.info(s"dropStatingTableStr = {}", dropStatingTableStr)
                     val mKey: String = {
@@ -197,7 +217,7 @@ object MySQLToRedshiftMigrator {
                         }
                     }
                     val customFieldsI = cs match {
-                        case Some(customSelect) => 
+                        case Some(customSelect) =>
                             val pattern = Pattern.compile("(?:AS|as)\\s*(\\w+)\\s*(?:,|$)")
                             val matcher = pattern.matcher(customSelect)
                             val cf = scala.collection.mutable.ListBuffer.empty[String]
@@ -210,54 +230,52 @@ object MySQLToRedshiftMigrator {
                         case None => Seq[String]()
                     }
                     (dropStatingTableStr, mKey, vaccumAfterLoad, customFieldsI)
-            }    
-        }
-        
-        val preActions: String = {
-                redshiftConf.preLoadCmd.map(_ + ";" + "\n").getOrElse("") +
-                dropAndCreateTableString +
-                {
-                    if (dropStagingTableString != "") {
-                        dropStagingTableString + 
-                        alterTableQuery(tableDetails, redshiftConf, customFields) + 
-                        "\n" + 
-                        createStagingTableString
-                    } else {
-                        ""
-                    }
-                }        
             }
+        }
+
+        val preActions: String = {
+            redshiftConf.preLoadCmd.map(_ + ";" + "\n").getOrElse("") +
+                    dropAndCreateTableString + {
+                if (dropStagingTableString != "") {
+                    dropStagingTableString +
+                            alterTableQuery(tableDetails, redshiftConf, customFields) +
+                            "\n" +
+                            createStagingTableString
+                } else {
+                    ""
+                }
+            }
+        }
 
         val stagingTablePostActions = if (dropStagingTableString != "") {
             val tableColumns = "\"" + tableDetails.validFields.map(_.fieldName).mkString("\", \"") + "\""
 
             s"""DELETE FROM $redshiftTableName USING $redshiftStagingTableName
-               |    WHERE $redshiftTableName.$mergeKey = $redshiftStagingTableName.$mergeKey; """.stripMargin + 
-           "\n" + 
-           {
-                if(customFields.size == 0) {
+               |    WHERE $redshiftTableName.$mergeKey = $redshiftStagingTableName.$mergeKey; """.stripMargin +
+                    "\n" + {
+                if (customFields.isEmpty) {
                     // Handling columns order mismatch
-                        s"""INSERT INTO $redshiftTableName ($tableColumns)
-                           |SELECT $tableColumns FROM $redshiftStagingTableName;""".stripMargin
+                    s"""INSERT INTO $redshiftTableName ($tableColumns)
+                       |SELECT $tableColumns FROM $redshiftStagingTableName;""".stripMargin
                 } else {
                     val customFieldsStr = "\"" + customFields.mkString("\", \"") + "\""
-                    val allColumnsPlusCustomOnes   = s"( $tableColumns, $customFieldsStr )"
+                    val allColumnsPlusCustomOnes = s"( $tableColumns, $customFieldsStr )"
                     logger.info("allColumnsPlusCustomOnes => {}", allColumnsPlusCustomOnes)
-                    val customSelect:String = internalConfig.incrementalSettings.get.customSelectFromStaging.get
+                    val customSelect: String = internalConfig.incrementalSettings.get.customSelectFromStaging.get
                     s"""INSERT INTO $redshiftTableName $allColumnsPlusCustomOnes
                        |SELECT *, $customSelect FROM $redshiftStagingTableName;""".stripMargin
                 }
-           }
+            }
         } else {
             ""
         }
 
         val postActions: String = Seq[String](stagingTablePostActions,
-                                                redshiftConf.postLoadCmd.map{
-                                                    _.replace("{{s}}",redshiftStagingTableName)
-                                                }.getOrElse(""),
-                                                dropStagingTableString
-                                             ).filter( _.trim != "").mkString("\n ;")
+            redshiftConf.postLoadCmd.map {
+                _.replace("{{s}}", redshiftStagingTableName)
+            }.getOrElse(""),
+            dropStagingTableString
+        ).filter(_.trim != "").mkString("\n")
 
         logger.info("Redshift PreActions = {}", preActions)
         logger.info("Redshift PostActions = {}", postActions)
@@ -280,9 +298,9 @@ object MySQLToRedshiftMigrator {
             case None => df
         }
         val extracopyoptions = if (dropStagingTableString != "") {
-                "TRUNCATECOLUMNS COMPUPDATE OFF STATUPDATE OFF" 
-            } else "TRUNCATECOLUMNS COMPUPDATE OFF "
-        
+            "TRUNCATECOLUMNS COMPUPDATE OFF STATUPDATE OFF"
+        } else "TRUNCATECOLUMNS COMPUPDATE OFF "
+
         val redshiftWriter = redshiftWriterPartitioned.write.
                 format("com.databricks.spark.redshift").
                 option("url", RedshiftUtil.getJDBCUrl(redshiftConf)).
@@ -306,13 +324,13 @@ object MySQLToRedshiftMigrator {
 
         redshiftWriterWithPostActions.save()
         try {
-            if (shallVaccumAfterLoad) {
+            if (shallVacuumAfterLoad) {
                 RedshiftUtil.performVacuum(redshiftConf)
             } else {
                 logger.info("Not opting for Vacuum, shallVacuumAfterLoad is false")
             }
         } catch {
-            case e: Exception => logger.warn("Vacuum failed for reason: {}", e.getStackTrace.mkString("\n"))
+            case e: Exception => logger.warn("Vacuum failed for reason", e)
         }
     }
 
@@ -323,7 +341,7 @@ object MySQLToRedshiftMigrator {
       * @param redshiftConf redshift configuration
       * @return Query of add and delete columns from redshift table
       */
-    private def alterTableQuery(tableDetails: TableDetails, redshiftConf: DBConfiguration, customFields:Seq[String]): String = {
+    private def alterTableQuery(tableDetails: TableDetails, redshiftConf: DBConfiguration, customFields: Seq[String]): String = {
 
         val redshiftTableName: String = RedshiftUtil.getTableNameWithSchema(redshiftConf)
         try {
@@ -351,7 +369,7 @@ object MySQLToRedshiftMigrator {
             addColumnsQuery + deleteColumnQuery
         } catch {
             case e: Exception =>
-                logger.warn("Error occurred while altering table: \n{}", e.getStackTrace.mkString("\n"))
+                logger.warn("Error occurred while altering table", e)
                 ""
         }
     }

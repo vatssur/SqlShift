@@ -5,13 +5,12 @@ package com.goibibo.sqlshift.models
   * Author: shivamsharma
   * Date: 12/29/16.
   */
-private[sqlshift] sealed trait InternalConf
 
 private[sqlshift] object InternalConfs {
 
     case class DBField(fieldName: String,
                        fieldType: String,
-                       javaType: Option[String] = None) extends InternalConf {
+                       javaType: Option[String] = None) {
 
         override def toString: String = {
             s"""{
@@ -25,7 +24,7 @@ private[sqlshift] object InternalConfs {
     case class TableDetails(validFields: Seq[DBField],
                             invalidFields: Seq[DBField],
                             sortKeys: Seq[String],
-                            distributionKey: Option[String]) extends InternalConf {
+                            distributionKey: Option[String]) {
 
         override def toString: String = {
             s"""{
@@ -43,12 +42,14 @@ private[sqlshift] object InternalConfs {
 
     //shallMerge: If false, new data will be appended, If true: It will be merged based on mergeKey
     //mergeKey: If mergeKey is not provided by default code uses primaryKey of the table as the mergeKey
-    case class IncrementalSettings(whereCondition: String,
-                                   shallMerge: Boolean = false,
+    case class IncrementalSettings(shallMerge: Boolean = false,
                                    mergeKey: Option[String] = None,
                                    shallVacuumAfterLoad: Boolean = false,
                                    customSelectFromStaging: Option[String] = None,
-                                   isAppendOnly: Boolean = false) extends InternalConf
+                                   isAppendOnly: Boolean = false,
+                                   incrementalColumn: Option[String] = None,
+                                   fromOffset: Option[String] = None,
+                                   toOffset: Option[String] = None)
 
     //Defaults,
     //If shallSplit = None then shallSplit = true
@@ -68,6 +69,6 @@ private[sqlshift] object InternalConfs {
                               shallOverwrite: Option[Boolean] = None,
                               incrementalSettings: Option[IncrementalSettings] = None,
                               mapPartitions: Option[Int] = None,
-                              reducePartitions: Option[Int] = None) extends InternalConf
+                              reducePartitions: Option[Int] = None)
 
 }

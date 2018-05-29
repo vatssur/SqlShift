@@ -3,7 +3,7 @@ package com.goibibo.sqlshift.commons
 import java.io.{File, InputStream}
 import java.sql.ResultSet
 
-import com.goibibo.sqlshift.models.Configurations.{AppConfiguration, DBConfiguration, S3Config}
+import com.goibibo.sqlshift.models.Configurations._
 import com.goibibo.sqlshift.models.InternalConfs.{IncrementalSettings, InternalConfig}
 import com.goibibo.sqlshift.models._
 import org.apache.spark.sql.SQLContext
@@ -132,7 +132,7 @@ object Util {
         System.setProperty("com.amazonaws.services.s3.enableV4", "true")
         sc.hadoopConfiguration.set("fs.s3a.endpoint", "s3.ap-south-1.amazonaws.com")
         sc.hadoopConfiguration.set("spark.hadoop.mapreduce.fileoutputcommitter.algorithm.version", "2")
-        sc.hadoopConfiguration.set("fs.s3a.fast.upload","true")
+        sc.hadoopConfiguration.set("fs.s3a.fast.upload", "true")
         (sc, sqlContext)
     }
 
@@ -155,8 +155,12 @@ object Util {
             (redshiftJson \ "username").extract[String], (redshiftJson \ "password").extract[String])
 
         val s3Conf: S3Config = S3Config((s3Json \ "location").extract[String],
-            Try{Some((s3Json \ "accessKey").extract[String])}.getOrElse(None), 
-            Try{Some((s3Json \ "secretKey").extract[String])}.getOrElse(None))
+            Try {
+                Some((s3Json \ "accessKey").extract[String])
+            }.getOrElse(None),
+            Try {
+                Some((s3Json \ "secretKey").extract[String])
+            }.getOrElse(None))
         (mysqlConf, redshiftConf, s3Conf)
     }
 
@@ -166,21 +170,20 @@ object Util {
         logger.info("\n------------- Start :: table: {} -------------", (table \ "name").extract[String])
         val preLoadCmdValue: JValue = table \ "preLoadCmd"
         val preLoadCmd = if (preLoadCmdValue != JNothing && preLoadCmdValue != JNull) {
-            val strVal = preLoadCmdValue.extract[String] 
-            if(strVal.trim == "") None else Some(strVal.trim)
+            val strVal = preLoadCmdValue.extract[String]
+            if (strVal.trim == "") None else Some(strVal.trim)
         } else {
             None
         }
 
         val postLoadCmdValue: JValue = table \ "postLoadCmd"
         val postLoadCmd = if (postLoadCmdValue != JNothing && postLoadCmdValue != JNull) {
-            val strVal = postLoadCmdValue.extract[String] 
-            if(strVal.trim == "") None else Some(strVal.trim)
+            val strVal = postLoadCmdValue.extract[String]
+            if (strVal.trim == "") None else Some(strVal.trim)
         } else {
             None
         }
         val redshiftConfU = redshiftConf.copy(preLoadCmd = preLoadCmd, postLoadCmd = postLoadCmd)
-        val incrementalColumn: JValue = table \ "incremental"
         var internalConfig: InternalConfig = null
 
         val isAppendOnlyValue = table \ "isAppendOnly"
@@ -217,52 +220,73 @@ object Util {
         }
         logger.info("Number of partitions: {}", partitions)
 
-        if (incrementalColumn == JNothing || incrementalColumn == JNull) {
-            logger.info("Table is not incremental")
-            internalConfig = InternalConfig(shallSplit = Some(isSplittable), distKey = distKey, mapPartitions = partitions,
-                reducePartitions = partitions)
-        } else {
-            val whereCondition: String = incrementalColumn.extract[String]
-            logger.info("Table is incremental with condition: {}", whereCondition)
-            val mergeKeyValue: JValue = table \ "mergeKey"
-            val mergeKey: Option[String] = if (mergeKeyValue == JNothing || mergeKeyValue == JNull)
-                None
-            else
-                Some(mergeKeyValue.extract[String])
-            logger.info("Merge Key: {}", mergeKey.orNull)
 
-            val addColumnValue: JValue = table \ "addColumn"
-            val addColumn: Option[String] = if (addColumnValue == JNothing || addColumnValue == JNull)
-                None
-            else
-                Some(addColumnValue.extract[String])
-            logger.info("Add Column: {}", addColumn.orNull)
+        val mergeKeyValue: JValue = table \ "mergeKey"
+        val mergeKey: Option[String] = if (mergeKeyValue == JNothing || mergeKeyValue == JNull)
+            None
+        else
+            Some(mergeKeyValue.extract[String])
+        logger.info("Merge Key: {}", mergeKey.orNull)
 
-            val shallVacuumAfterLoadValue: JValue = table \ "deleteOnlyVacuum"
-            val shallVacuumAfterLoad: Boolean = if (shallVacuumAfterLoadValue == JNothing || shallVacuumAfterLoadValue == JNull)
-                false
-            else
-                shallVacuumAfterLoadValue.extract[Boolean]
-            logger.info("Delete only vacuum is {}", shallVacuumAfterLoad)
+        val addColumnValue: JValue = table \ "addColumn"
+        val addColumn: Option[String] = if (addColumnValue == JNothing || addColumnValue == JNull)
+            None
+        else
+            Some(addColumnValue.extract[String])
+        logger.info("Add Column: {}", addColumn.orNull)
 
-            val incrementalSettings: IncrementalSettings = IncrementalSettings(whereCondition, shallMerge = true,
-                mergeKey = mergeKey, shallVacuumAfterLoad = shallVacuumAfterLoad, customSelectFromStaging = addColumn, isAppendOnly = isAppendOnly)
+        val shallVacuumAfterLoadValue: JValue = table \ "deleteOnlyVacuum"
+        val shallVacuumAfterLoad: Boolean = if (shallVacuumAfterLoadValue == JNothing || shallVacuumAfterLoadValue == JNull)
+            false
+        else
+            shallVacuumAfterLoadValue.extract[Boolean]
+        logger.info("Delete only vacuum is {}", shallVacuumAfterLoad)
 
-            val settings: Some[IncrementalSettings] = Some(incrementalSettings)
-            internalConfig = InternalConfig(shallSplit = Some(isSplittable), distKey = distKey, incrementalSettings = settings,
-                mapPartitions = partitions, reducePartitions = partitions)
-        }
+        val incrementalColumnJValue: JValue = table \ "incrementalColumn"
+        val incrementalColumn: Option[String] = if (incrementalColumnJValue == JNothing || incrementalColumnJValue == JNull)
+            None
+        else
+            Some(incrementalColumnJValue.extract[String])
+
+        val fromOffsetJValue: JValue = table \ "fromOffset"
+        val fromOffset: Option[String] = if (fromOffsetJValue == JNothing || fromOffsetJValue == JNull)
+            None
+        else
+            Some(fromOffsetJValue.extract[String])
+
+        val toOffsetJValue: JValue = table \ "toOffset"
+        val toOffset: Option[String] = if (toOffsetJValue == JNothing || toOffsetJValue == JNull)
+            None
+        else
+            Some(toOffsetJValue.extract[String])
+
+        val shallMergeJValue: JValue = table \ "shallMerge"
+        val shallMerge: Boolean = if (shallMergeJValue == JNothing || shallMergeJValue == JNull)
+            false
+        else
+            shallMergeJValue.extract[Boolean]
+
+        val incrementalSettings: IncrementalSettings = IncrementalSettings(shallMerge = shallMerge, mergeKey = mergeKey,
+            shallVacuumAfterLoad = shallVacuumAfterLoad, customSelectFromStaging = addColumn, isAppendOnly = isAppendOnly,
+            incrementalColumn = incrementalColumn, fromOffset = fromOffset, toOffset = toOffset)
+
+        val settings: Some[IncrementalSettings] = Some(incrementalSettings)
+        internalConfig = InternalConfig(shallSplit = Some(isSplittable), distKey = distKey, incrementalSettings = settings,
+            mapPartitions = partitions, reducePartitions = partitions)
+
         AppConfiguration(mysqlConf, redshiftConfU, s3Conf, internalConfig)
     }
 
-    def getAppConfigurations(jsonPath: String): Seq[AppConfiguration] = {
+    def getAppConfigurations(jsonPath: String): PAppConfiguration = {
         var configurations: Seq[AppConfiguration] = Seq[AppConfiguration]()
         implicit val formats = DefaultFormats
 
         val jsonInputStream: InputStream = new File(jsonPath).toURI.toURL.openStream()
         try {
             val json: JValue = parse(jsonInputStream)
-            val details: List[JValue] = json.extract[List[JValue]]
+            val offsetManager = (json \ "offsetManager").extract[OffsetManagerConf]
+
+            val details: List[JValue] = (json \ "configuration").extract[List[JValue]]
             for (detail <- details) {
                 val mysqlJson: JValue = (detail \ "mysql").extract[JValue]
                 val redshiftJson: JValue = (detail \ "redshift").extract[JValue]
@@ -282,85 +306,10 @@ object Util {
                     logger.info("\n------------- End :: table: {} -------------", (table \ "name").extract[String])
                 }
             }
+            PAppConfiguration(Some(offsetManager), configurations)
         } finally {
             jsonInputStream.close()
         }
-        configurations
-    }
-
-    def createJsonConfiguration(appConfigurations: Seq[AppConfiguration]): String = {
-        "[\n" + appConfigurations.map { (configuration: AppConfiguration) =>
-            createJsonConfiguration(configuration)
-        }.mkString(",\n") +
-        "]"
-    }
-    def createJsonConfiguration(appConfiguration: AppConfiguration): String = {
-        val mysqlConf = appConfiguration.mysqlConf
-        val mySQLConfJson =
-            s""""mysql": {
-               | "db": "${mysqlConf.db}",
-               | "hostname": "${mysqlConf.hostname}",
-               | "portno": ${mysqlConf.portNo},
-               | "username": "${mysqlConf.userName}",
-               | "password": "${mysqlConf.password}"
-               | }""".stripMargin
-
-        val redshiftConf = appConfiguration.redshiftConf
-        val redshiftConfJson =
-            s""""redshift": {
-               | "schema": "${redshiftConf.schema}",
-               | "hostname": "${redshiftConf.hostname}",
-               | "portno": ${redshiftConf.portNo},
-               | "username": "${redshiftConf.userName}",
-               | "password": "${redshiftConf.password}"
-               | }""".stripMargin
-
-        val s3Conf = appConfiguration.s3Conf
-        val s3ConfJson =
-            s""""s3": {
-               | "location": "${s3Conf.s3Location}",
-               | "accessKey": "${s3Conf.accessKey}",
-               | "secretKey": "${s3Conf.secretKey}"
-               | }""".stripMargin
-
-        val internalConf = appConfiguration.internalConfig
-        var tableConfJson =
-            s""""tables": [
-               | {
-               |     "name": "${mysqlConf.tableName}"""".stripMargin
-
-        val incrementalSettings = internalConf.incrementalSettings
-        if (incrementalSettings.isDefined) {
-            tableConfJson +=
-                    s""",
-                       |     "incremental": "${incrementalSettings.get.whereCondition}"""".stripMargin
-            if (incrementalSettings.get.mergeKey.isDefined)
-                tableConfJson +=
-                        s""",
-                           |     "mergeKey": "${incrementalSettings.get.mergeKey}"""".stripMargin
-            if (incrementalSettings.get.customSelectFromStaging.isDefined)
-                tableConfJson +=
-                        s""",
-                           |     "addColumn": "${incrementalSettings.get.customSelectFromStaging}"""".stripMargin
-            tableConfJson +=
-                        s""",
-                           |     "isAppendOnly": "${incrementalSettings.get.isAppendOnly}"""".stripMargin
-        }
-
-        if (internalConf.mapPartitions.isDefined)
-            tableConfJson +=
-                    s""",
-                       |     "partitions": ${internalConf.mapPartitions.get}""".stripMargin
-        if (internalConf.shallSplit.isDefined)
-            tableConfJson +=
-                s""",
-                   |     "isSplittable": ${internalConf.shallSplit.get}""".stripMargin
-
-        tableConfJson +=
-            """
-              | }
-              |]""".stripMargin
-        "{\n" + mySQLConfJson + ",\n" + tableConfJson + ",\n" + redshiftConfJson + ",\n" + s3ConfJson + "\n}"
     }
 
     /**
@@ -385,14 +334,14 @@ object Util {
     /**
       * True if configurations has atleast one failed configuration otherwise false.
       *
-      * @param configurations table configurations
+      * @param pAppConfiguration table configurations
       * @return
       */
-    def anyFailures(configurations: Seq[AppConfiguration]): Boolean = {
-        failedAndSuccessConfigurations(configurations)._1.nonEmpty
+    def anyFailures(pAppConfiguration: PAppConfiguration): Boolean = {
+        failedAndSuccessConfigurations(pAppConfiguration.configuration)._1.nonEmpty
     }
 
-    def formattedInfoSection(appConfigurations: Seq[AppConfiguration]): String = {
+    def formattedInfoSection(pAppConfiguration: PAppConfiguration): String = {
         val tableSpaceFormatString = "|%4s| %20s| %40s| %20s| %12s| %13s|"
         val header = String.format(tableSpaceFormatString, "SNo", "MySQL DB", "Table Name",
             "Redshift Schema", "isSuccessful", "MigrationTime")
@@ -401,7 +350,7 @@ object Util {
         formattedString += header + "\n"
         formattedString += "-" * header.length + "\n"
         var sno = 1
-        for (appConf <- appConfigurations) {
+        for (appConf <- pAppConfiguration.configuration) {
             formattedString += String.format(tableSpaceFormatString + "\n", sno.toString,
                 appConf.mysqlConf.db, appConf.mysqlConf.tableName, appConf.redshiftConf.schema,
                 appConf.status.get.isSuccessful.toString, appConf.migrationTime.get.toString)
