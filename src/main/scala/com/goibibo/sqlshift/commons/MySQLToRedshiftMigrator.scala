@@ -193,8 +193,8 @@ object MySQLToRedshiftMigrator {
         val redshiftStagingTableName = redshiftTableName + stagingPrepend
         val dropTableString = RedshiftUtil.getDropCommand(redshiftConf)
         logger.info("dropTableString {}", dropTableString)
-        val extrafields = td.validFields ++ Seq(DBField("starttime","timestamp")) ++ Seq(DBField("endtime","timestamp"))
-        val extrasortkeys = td.sortKeys ++ Seq("starttime") ++ Seq("endtime")
+        val extrafields = tableDetails.validFields ++ Seq(DBField("starttime","timestamp")) ++ Seq(DBField("endtime","timestamp"))
+        val extrasortkeys = tableDetails.sortKeys ++ Seq("starttime") ++ Seq("endtime")
         tableDetailsExtra = tableDetails.copy(validFields = extrafields, sortKeys = extrasortkeys)
         val createTableString = if(isSnapshot){
             RedshiftUtil.getCreateTableString(tableDetailsExtra, redshiftConf)
