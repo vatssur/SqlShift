@@ -195,7 +195,7 @@ object MySQLToRedshiftMigrator {
         logger.info("dropTableString {}", dropTableString)
         val extrafields = tableDetails.validFields ++ Seq(DBField("starttime","timestamp")) ++ Seq(DBField("endtime","timestamp"))
         val extrasortkeys = tableDetails.sortKeys ++ Seq("starttime") ++ Seq("endtime")
-        tableDetailsExtra = tableDetails.copy(validFields = extrafields, sortKeys = extrasortkeys)
+        val tableDetailsExtra = tableDetails.copy(validFields = extrafields, sortKeys = extrasortkeys)
         val createTableString = if(isSnapshot){
             RedshiftUtil.getCreateTableString(tableDetailsExtra, redshiftConf)
         }
@@ -302,7 +302,7 @@ object MySQLToRedshiftMigrator {
                 }
             }
         } else if (dropStagingTableString != "" && isSnapshot){
-            val incrementalColumn = incrementalSettings.incrementalColumn
+            val incrementalColumn = internalConfig.incrementalSettings.incrementalColumn
             getSnapshotCreationSql(redshiftTableName, redshiftStagingTableName, mergeKey, fieldsToDeduplicateOn, incrementalColumn, tableDetailsExtra)
         } else {
             ""
