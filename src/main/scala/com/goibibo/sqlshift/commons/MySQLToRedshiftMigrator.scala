@@ -137,6 +137,29 @@ object MySQLToRedshiftMigrator {
         (dataWithTypesFixed, tableDetails)
     }
 
+    def getSnapshotCreationSql(redshiftTableName, redshiftStagingTableName, mergeKey, fieldsToDeduplicateOn, incrementalColumn, tableDetails){
+        val tableColumns = "\"" + tableDetails.validFields.map(_.fieldName).mkString("\", \"") + "\""
+
+        s"""create temp table changed_records
+                |diststyle key
+                |distkey($mergeKey)
+                |sortkey($mergeKey,$fieldsToDeduplicateOn) as
+                |(
+                |   select $redshiftStagingTableName.* from $redshiftStagingTableName
+                |   left join (select * from $redshiftTableName where endtime is null) o
+                |   using ($mergeKey,$fieldsToDeduplicateOn)
+                |   where o.$mergeKey is null
+                |);
+                |update $redshiftTableName set endtime = c.$incrementalColumn
+                |from changed_records c
+                |where $redshiftTableName.$mergeKey = c.$mergeKey and $redshiftTableName.endtime is null;
+                |insert into $redshiftTableName($tableColumns)
+            |   select *, $incrementalColumn as starttime, null::timestamp as endtime
+            |   from changed_records;""".stripMargin
+
+    }
+
+
     /**
       * Store Dataframe to Redshift table. Drop table if exists.
       * It table doesn't exist it will create table.
@@ -158,6 +181,9 @@ object MySQLToRedshiftMigrator {
             sqlContext.sparkContext.hadoopConfiguration.set("fs.s3a.secret.key", s3Conf.secretKey.get)
         }
 
+        val isSnapshot = true
+        val fieldsToDeduplicateOn = "available,booked,blocked"
+
         val redshiftTableName = RedshiftUtil.getTableNameWithSchema(redshiftConf)
         val stagingPrepend = "_staging" + {
             val r = scala.util.Random
@@ -166,8 +192,16 @@ object MySQLToRedshiftMigrator {
         val redshiftStagingTableName = redshiftTableName + stagingPrepend
         val dropTableString = RedshiftUtil.getDropCommand(redshiftConf)
         logger.info("dropTableString {}", dropTableString)
-        val createTableString = RedshiftUtil.getCreateTableString(tableDetails, redshiftConf)
-        //val redshiftStagingConf = redshiftConf.copy(tableName = redshiftConf.tableName + stagingPrepend)
+        val extrafields = td.validFields ++ Seq(DBField("starttime","timestamp")) ++ Seq(DBField("endtime","timestamp"))
+        val extrasortkeys = td.sortKeys ++ Seq("starttime") ++ Seq("endtime")
+        tableDetailsExtra = tableDetails.copy(validFields = extrafields, sortKeys = extrasortkeys)
+        val createTableString = if(isSnapshot){
+            RedshiftUtil.getCreateTableString(tableDetailsExtra, redshiftConf)
+        }
+        else {
+            RedshiftUtil.getCreateTableString(tableDetails, redshiftConf)
+        }
+        //val redshiftStagingConf = redshiftConf.copy(tableName = redshiftConf.tableName + stagingPrepend
         val createStagingTableString = RedshiftUtil.getCreateTableString(tableDetails, redshiftConf, Some(redshiftStagingTableName))
         logger.info("createTableString {}", createTableString)
         val shallOverwrite = internalConfig.shallOverwrite match {
@@ -247,7 +281,7 @@ object MySQLToRedshiftMigrator {
             }
         }
 
-        val stagingTablePostActions = if (dropStagingTableString != "") {
+        val stagingTablePostActions = if (dropStagingTableString != "" && !isSnapshot) {
             val tableColumns = "\"" + tableDetails.validFields.map(_.fieldName).mkString("\", \"") + "\""
 
             s"""DELETE FROM $redshiftTableName USING $redshiftStagingTableName
@@ -266,6 +300,8 @@ object MySQLToRedshiftMigrator {
                        |SELECT *, $customSelect FROM $redshiftStagingTableName;""".stripMargin
                 }
             }
+        } else if (dropStagingTableString != "" && isSnapshot){
+            getSnapshotCreationSql(redshiftTableName, redshiftStagingTableName, mergeKey, fieldsToDeduplicateOn, incrementalColumn, tableDetailsExtra)
         } else {
             ""
         }
