@@ -302,6 +302,7 @@ object MySQLToRedshiftMigrator {
                 }
             }
         } else if (dropStagingTableString != "" && isSnapshot){
+            val incrementalColumn = incrementalSettings.incrementalColumn
             getSnapshotCreationSql(redshiftTableName, redshiftStagingTableName, mergeKey, fieldsToDeduplicateOn, incrementalColumn, tableDetailsExtra)
         } else {
             ""
