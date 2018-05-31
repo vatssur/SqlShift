@@ -4,7 +4,7 @@ import java.util.Properties
 import java.util.regex._
 
 import com.goibibo.sqlshift.models.Configurations.{DBConfiguration, S3Config}
-import com.goibibo.sqlshift.models.InternalConfs.{IncrementalSettings, InternalConfig, TableDetails}
+import com.goibibo.sqlshift.models.InternalConfs.{IncrementalSettings, InternalConfig, TableDetails, DBField}
 import org.apache.spark.sql._
 import org.slf4j.{Logger, LoggerFactory}
 
@@ -222,14 +222,15 @@ object MySQLToRedshiftMigrator {
 
         val dropAndCreateTableString = if (shallOverwrite) dropTableString + "\n" + createTableString else createTableString
 
-        val (dropStagingTableString: String, mergeKey: String, shallVacuumAfterLoad: Boolean, customFields: Seq[String]) = {
+        val (dropStagingTableString: String, mergeKey: String, shallVacuumAfterLoad: Boolean, 
+            customFields: Seq[String],incrementalColumn:String) = {
             internalConfig.incrementalSettings match {
                 case None =>
                     logger.info("No dropStagingTableString and No vacuum, internalConfig.incrementalSettings is None")
-                    ("", "", false, Seq[String]())
+                    ("", "", false, Seq[String](),"")
                 case Some(IncrementalSettings(shallMerge, stagingTableMergeKey, vaccumAfterLoad, cs, true, incrementalColumn, fromOffset, toOffset)) =>
                     logger.info("Incremental update is append only")
-                    ("", "", false, Seq[String]())
+                    ("", "", false, Seq[String](),incrementalColumn.get)
                 case Some(IncrementalSettings(shallMerge, stagingTableMergeKey, vaccumAfterLoad, cs, false, incrementalColumn, fromOffset, toOffset)) =>
                     val dropStatingTableStr = if (shallMerge) s"DROP TABLE IF EXISTS $redshiftStagingTableName;" else ""
                     logger.info(s"dropStatingTableStr = {}", dropStatingTableStr)
@@ -264,7 +265,7 @@ object MySQLToRedshiftMigrator {
                             cf.toSeq
                         case None => Seq[String]()
                     }
-                    (dropStatingTableStr, mKey, vaccumAfterLoad, customFieldsI)
+                    (dropStatingTableStr, mKey, vaccumAfterLoad, customFieldsI, incrementalColumn.get)
             }
         }
 
@@ -302,7 +303,6 @@ object MySQLToRedshiftMigrator {
                 }
             }
         } else if (dropStagingTableString != "" && isSnapshot){
-            val incrementalColumn = internalConfig.incrementalSettings.incrementalColumn
             getSnapshotCreationSql(redshiftTableName, redshiftStagingTableName, mergeKey, fieldsToDeduplicateOn, incrementalColumn, tableDetailsExtra)
         } else {
             ""
