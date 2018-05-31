@@ -181,7 +181,7 @@ object MySQLToRedshiftMigrator {
             sqlContext.sparkContext.hadoopConfiguration.set("fs.s3a.secret.key", s3Conf.secretKey.get)
         }
 
-        val isSnapshot = true
+        val isSnapshot = false
         val fieldsToDeduplicateOn = "available,booked,blocked"
 
         val redshiftTableName = RedshiftUtil.getTableNameWithSchema(redshiftConf)
