@@ -138,10 +138,10 @@ object MySQLToRedshiftMigrator {
     }
 
     def getSnapshotCreationSql(redshiftTableName: String, redshiftStagingTableName:String, mergeKey:String,
-                               fieldsToDeduplicateOn:String, incrementalColumn:String, tableDetails: TableDetails){
-        val tableColumns = "\"" + tableDetails.validFields.map(_.fieldName).mkString("\", \"") + "\""
+                               fieldsToDeduplicateOn:String, incrementalColumn:String, tableDetails: TableDetails): String = {
+        val tableColumns = "\"" + tableDetails.validFields.map(_.fieldName).mkString(",") + "\"";
 
-        val query: String = s"""create temp table changed_records
+        s"""create temp table changed_records
                 |diststyle key
                 |distkey($mergeKey)
                 |sortkey($mergeKey,$fieldsToDeduplicateOn) as
@@ -155,10 +155,8 @@ object MySQLToRedshiftMigrator {
                 |from changed_records c
                 |where $redshiftTableName.$mergeKey = c.$mergeKey and $redshiftTableName.endtime is null;
                 |insert into $redshiftTableName($tableColumns)
-            |   select *, $incrementalColumn as starttime, null::timestamp as endtime
-            |   from changed_records;""".stripMargin
-        query
-
+                |   select *, $incrementalColumn as starttime, null::timestamp as endtime
+                |   from changed_records;""".stripMargin
     }
 
 
@@ -284,7 +282,7 @@ object MySQLToRedshiftMigrator {
             }
         }
 
-        val stagingTablePostActions = if (dropStagingTableString != "" && !isSnapshot) {
+        val stagingTablePostActions = if (dropStagingTableString.isEmpty && !isSnapshot) {
             val tableColumns = "\"" + tableDetails.validFields.map(_.fieldName).mkString("\", \"") + "\""
 
             s"""DELETE FROM $redshiftTableName USING $redshiftStagingTableName
@@ -303,7 +301,7 @@ object MySQLToRedshiftMigrator {
                        |SELECT *, $customSelect FROM $redshiftStagingTableName;""".stripMargin
                 }
             }
-        } else if (dropStagingTableString != "" && isSnapshot){
+        } else if (dropStagingTableString.isEmpty && isSnapshot){
             getSnapshotCreationSql(redshiftTableName, redshiftStagingTableName, mergeKey, fieldsToDeduplicateOn, incrementalColumn, tableDetailsExtra)
         } else {
             ""
