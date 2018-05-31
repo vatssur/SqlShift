@@ -271,11 +271,13 @@ object MySQLToRedshiftMigrator {
         val preActions: String = {
             redshiftConf.preLoadCmd.map(_ + ";" + "\n").getOrElse("") +
                     dropAndCreateTableString + {
-                if (dropStagingTableString != "") {
+                if (!dropStagingTableString.isEmpty && !isSnapshot) {
                     dropStagingTableString +
                             alterTableQuery(tableDetails, redshiftConf, customFields) +
                             "\n" +
                             createStagingTableString
+                } else if (!dropStagingTableString.isEmpty && isSnapshot) {
+                    dropStagingTableString + createStagingTableString
                 } else {
                     ""
                 }
