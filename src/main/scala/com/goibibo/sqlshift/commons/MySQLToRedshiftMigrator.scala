@@ -141,7 +141,7 @@ object MySQLToRedshiftMigrator {
                                fieldsToDeduplicateOn:String, incrementalColumn:String, tableDetails: TableDetails){
         val tableColumns = "\"" + tableDetails.validFields.map(_.fieldName).mkString("\", \"") + "\""
 
-        s"""create temp table changed_records
+        val query: String = s"""create temp table changed_records
                 |diststyle key
                 |distkey($mergeKey)
                 |sortkey($mergeKey,$fieldsToDeduplicateOn) as
@@ -157,6 +157,7 @@ object MySQLToRedshiftMigrator {
                 |insert into $redshiftTableName($tableColumns)
             |   select *, $incrementalColumn as starttime, null::timestamp as endtime
             |   from changed_records;""".stripMargin
+        query
 
     }
 
