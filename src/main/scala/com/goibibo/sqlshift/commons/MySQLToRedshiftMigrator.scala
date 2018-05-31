@@ -264,7 +264,7 @@ object MySQLToRedshiftMigrator {
                             cf.toSeq
                         case None => Seq[String]()
                     }
-                    (dropStatingTableStr, mKey, vaccumAfterLoad, customFieldsI, incrementalColumn.get)
+                    (dropStatingTableStr, mKey, vaccumAfterLoad, customFieldsI, incrementalColumn.getOrElse(""))
             }
         }
 
