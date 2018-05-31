@@ -282,7 +282,7 @@ object MySQLToRedshiftMigrator {
             }
         }
 
-        val stagingTablePostActions = if (dropStagingTableString.isEmpty && !isSnapshot) {
+        val stagingTablePostActions = if (!dropStagingTableString.isEmpty && !isSnapshot) {
             val tableColumns = "\"" + tableDetails.validFields.map(_.fieldName).mkString("\", \"") + "\""
 
             s"""DELETE FROM $redshiftTableName USING $redshiftStagingTableName
@@ -301,7 +301,7 @@ object MySQLToRedshiftMigrator {
                        |SELECT *, $customSelect FROM $redshiftStagingTableName;""".stripMargin
                 }
             }
-        } else if (dropStagingTableString.isEmpty && isSnapshot){
+        } else if (!dropStagingTableString.isEmpty && isSnapshot){
             getSnapshotCreationSql(redshiftTableName, redshiftStagingTableName, mergeKey, fieldsToDeduplicateOn, incrementalColumn, tableDetailsExtra)
         } else {
             ""
