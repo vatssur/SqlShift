@@ -139,7 +139,7 @@ object MySQLToRedshiftMigrator {
 
     def getSnapshotCreationSql(redshiftTableName: String, redshiftStagingTableName:String, mergeKey:String,
                                fieldsToDeduplicateOn:String, incrementalColumn:String, tableDetails: TableDetails): String = {
-        val tableColumns = tableDetails.validFields.map(_.fieldName).mkString(",");
+        val tableColumns = "\"" + tableDetails.validFields.map(_.fieldName).mkString("\", \"") + "\""
 
         s"""create temp table changed_records
                 |diststyle key
@@ -181,7 +181,7 @@ object MySQLToRedshiftMigrator {
             sqlContext.sparkContext.hadoopConfiguration.set("fs.s3a.secret.key", s3Conf.secretKey.get)
         }
 
-        val isSnapshot = true
+        val isSnapshot = false
         val fieldsToDeduplicateOn = "available,booked,blocked"
 
         val redshiftTableName = RedshiftUtil.getTableNameWithSchema(redshiftConf)
@@ -222,7 +222,7 @@ object MySQLToRedshiftMigrator {
         val dropAndCreateTableString = if (shallOverwrite) dropTableString + "\n" + createTableString else createTableString
 
         val (dropStagingTableString: String, mergeKey: String, shallVacuumAfterLoad: Boolean, 
-            customFields: Seq[String],incrementalColumn:String) = {
+            customFields: Seq[String],incrementalColumn: String) = {
             internalConfig.incrementalSettings match {
                 case None =>
                     logger.info("No dropStagingTableString and No vacuum, internalConfig.incrementalSettings is None")
