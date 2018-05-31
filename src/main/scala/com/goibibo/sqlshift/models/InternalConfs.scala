@@ -49,7 +49,9 @@ private[sqlshift] object InternalConfs {
                                    isAppendOnly: Boolean = false,
                                    incrementalColumn: Option[String] = None,
                                    fromOffset: Option[String] = None,
-                                   toOffset: Option[String] = None)
+                                   toOffset: Option[String] = None,
+                                   isSnapshot: Boolean = false,
+                                   fieldsToDeduplicateOn: Option[String] = None)
 
     //Defaults,
     //If shallSplit = None then shallSplit = true

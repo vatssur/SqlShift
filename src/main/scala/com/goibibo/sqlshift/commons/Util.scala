@@ -260,6 +260,23 @@ object Util {
         else
             Some(toOffsetJValue.extract[String])
 
+        val isSnapshotValue = table \ "isSnapshot"
+        val isSnapshot: Boolean = if (isSnapshotValue != JNothing && isSnapshotValue != JNull) {
+            isSnapshotValue.extract[Boolean]
+        } else {
+            false
+        }
+        logger.info("Whether merge is snapshot: {}", isSnapshot)
+
+        val fieldsToDeduplicateOnValue = table \ "fieldsToDeduplicateOn"
+        val fieldsToDeduplicateOn: Option[String] = if (fieldsToDeduplicateOnValue != JNothing && fieldsToDeduplicateOnValue != JNull) {
+            logger.info("Found deduplication fields:- {}", fieldsToDeduplicateOnValue.extract[String])
+            Some(fieldsToDeduplicateOnValue.extract[String])
+        } else {
+            logger.info("No deduplication fields found in configuration")
+            None
+        }
+
         val shallMergeJValue: JValue = table \ "shallMerge"
         val shallMerge: Boolean = if (shallMergeJValue == JNothing || shallMergeJValue == JNull)
             false
@@ -268,7 +285,8 @@ object Util {
 
         val incrementalSettings: IncrementalSettings = IncrementalSettings(shallMerge = shallMerge, mergeKey = mergeKey,
             shallVacuumAfterLoad = shallVacuumAfterLoad, customSelectFromStaging = addColumn, isAppendOnly = isAppendOnly,
-            incrementalColumn = incrementalColumn, fromOffset = fromOffset, toOffset = toOffset)
+            incrementalColumn = incrementalColumn, fromOffset = fromOffset, toOffset = toOffset, isSnapshot = isSnapshot,
+            fieldsToDeduplicateOn = fieldsToDeduplicateOn)
 
         val settings: Some[IncrementalSettings] = Some(incrementalSettings)
         internalConfig = InternalConfig(shallSplit = Some(isSplittable), distKey = distKey, incrementalSettings = settings,
