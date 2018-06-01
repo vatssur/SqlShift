@@ -278,7 +278,7 @@ object MySQLToRedshiftMigrator {
                             "\n" +
                             createStagingTableString
                 } else if (!dropStagingTableString.isEmpty && isSnapshot) {
-                    dropStagingTableString + alterTableQuery(tableDetails, redshiftConf, customFields) +
+                    dropStagingTableString + alterTableQuery(tableDetailsExtra, redshiftConf, customFields) +
                       "\n" + createStagingTableString
                 } else {
                     ""
