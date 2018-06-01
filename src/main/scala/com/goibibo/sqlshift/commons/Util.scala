@@ -260,15 +260,15 @@ object Util {
         else
             Some(toOffsetJValue.extract[String])
 
-        val isSnapshotValue = table \ "isSnapshot"
+        val isSnapshotValue: JValue = table \ "isSnapshot"
         val isSnapshot: Boolean = if (isSnapshotValue != JNothing && isSnapshotValue != JNull) {
             isSnapshotValue.extract[Boolean]
         } else {
             false
         }
-        logger.info("Whether merge is snapshot: {}", isSnapshot)
+        logger.info("Whether merge type is snapshot: {}", isSnapshot)
 
-        val fieldsToDeduplicateOnValue = table \ "fieldsToDeduplicateOn"
+        val fieldsToDeduplicateOnValue: JValue = table \ "fieldsToDeduplicateOn"
         val fieldsToDeduplicateOn: Option[String] = if (fieldsToDeduplicateOnValue != JNothing && fieldsToDeduplicateOnValue != JNull) {
             logger.info("Found deduplication fields:- {}", fieldsToDeduplicateOnValue.extract[String])
             Some(fieldsToDeduplicateOnValue.extract[String])

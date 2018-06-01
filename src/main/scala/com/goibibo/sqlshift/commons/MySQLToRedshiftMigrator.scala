@@ -189,9 +189,6 @@ object MySQLToRedshiftMigrator {
         val redshiftStagingTableName = redshiftTableName + stagingPrepend
         val dropTableString = RedshiftUtil.getDropCommand(redshiftConf)
         logger.info("dropTableString {}", dropTableString)
-        val extrafields = tableDetails.validFields ++ Seq(DBField("starttime","timestamp")) ++ Seq(DBField("endtime","timestamp"))
-        val extrasortkeys = tableDetails.sortKeys ++ Seq("starttime") ++ Seq("endtime")
-        val tableDetailsExtra = tableDetails.copy(validFields = extrafields, sortKeys = extrasortkeys)
 
         val shallOverwrite = internalConfig.shallOverwrite match {
             case None =>
@@ -257,8 +254,12 @@ object MySQLToRedshiftMigrator {
             }
         }
 
+        val extraFields = tableDetails.validFields ++ Seq(DBField("starttime","timestamp"), DBField("endtime","timestamp"))
+        val extraSortKeys = Seq(mergeKey, "starttime", "endtime")
+        val tableDetailsExtra = tableDetails.copy(validFields = extraFields, sortKeys = extraSortKeys)
+
         val createTableString: String = if(isSnapshot){
-            RedshiftUtil.getCreateTableString(tableDetailsExtra, redshiftConf)
+            RedshiftUtil.getCreateTableString(tableDetailsExtra, redshiftConf, None, true)
         }
         else {
             RedshiftUtil.getCreateTableString(tableDetails, redshiftConf)
@@ -275,8 +276,7 @@ object MySQLToRedshiftMigrator {
                 if (!dropStagingTableString.isEmpty && !isSnapshot) {
                     dropStagingTableString +
                             alterTableQuery(tableDetails, redshiftConf, customFields) +
-                            "\n" +
-                            createStagingTableString
+                            "\n" + createStagingTableString
                 } else if (!dropStagingTableString.isEmpty && isSnapshot) {
                     dropStagingTableString + alterTableQuery(tableDetailsExtra, redshiftConf, customFields) +
                       "\n" + createStagingTableString
