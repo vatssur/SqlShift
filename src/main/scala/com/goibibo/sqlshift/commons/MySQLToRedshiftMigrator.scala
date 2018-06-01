@@ -278,8 +278,7 @@ object MySQLToRedshiftMigrator {
                             "\n" +
                             createStagingTableString
                 } else if (!dropStagingTableString.isEmpty && isSnapshot) {
-                    val snapshotFields = customFields ++ Seq("starttime","endtime")
-                    dropStagingTableString + alterTableQuery(tableDetailsExtra, redshiftConf, snapshotFields) +
+                    dropStagingTableString + alterTableQuery(tableDetails, redshiftConf, customFields) +
                       "\n" + createStagingTableString
                 } else {
                     ""
