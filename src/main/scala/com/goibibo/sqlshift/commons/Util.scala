@@ -115,7 +115,7 @@ object Util {
             return 0
         }
         logger.info("Average Row size: {}, difference b/w min-max primary key: {}", avgRowSize, minMaxDiff)
-        val expectedNumberOfRows = (memory / avgRowSize).toDouble
+        val expectedNumberOfRows = (memory / avgRowSize).toDouble * 0.05
         logger.info("Expected number of rows: {}", expectedNumberOfRows)
 
         var partitions: Int = Math.ceil(minMaxDiff / expectedNumberOfRows).toInt

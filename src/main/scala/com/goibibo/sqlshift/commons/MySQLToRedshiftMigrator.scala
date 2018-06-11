@@ -110,8 +110,8 @@ object MySQLToRedshiftMigrator {
 
                 sqlContext.read.
                         option("driver", "com.mysql.jdbc.Driver").
-                        option("fetchSize", Integer.MIN_VALUE.toString).
-                        option("fetchsize", Integer.MIN_VALUE.toString).
+//                        option("fetchSize", Integer.MIN_VALUE.toString).
+//                        option("fetchsize", Integer.MIN_VALUE.toString).
                         option("user", mysqlConfig.userName).
                         option("password", mysqlConfig.password).
                         jdbc(RedshiftUtil.getJDBCUrl(mysqlConfig), mysqlConfig.tableName, predicates.toArray, properties)
