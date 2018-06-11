@@ -269,9 +269,10 @@ object Util {
         logger.info("Whether merge type is snapshot: {}", isSnapshot)
 
         val fieldsToDeduplicateOnValue: JValue = table \ "fieldsToDeduplicateOn"
-        val fieldsToDeduplicateOn: Option[String] = if (fieldsToDeduplicateOnValue != JNothing && fieldsToDeduplicateOnValue != JNull) {
-            logger.info("Found deduplication fields:- {}", fieldsToDeduplicateOnValue.extract[String])
-            Some(fieldsToDeduplicateOnValue.extract[String])
+        val fieldsToDeduplicateOn: Option[Seq[String]] = if (fieldsToDeduplicateOnValue != JNothing && fieldsToDeduplicateOnValue != JNull) {
+            val fieldsToDeduplicateOnSeq = fieldsToDeduplicateOnValue.extract[Seq[String]]
+            logger.info("Found deduplication fields:- {}", fieldsToDeduplicateOnSeq)
+            Some(fieldsToDeduplicateOnSeq)
         } else {
             logger.info("No deduplication fields found in configuration")
             None
