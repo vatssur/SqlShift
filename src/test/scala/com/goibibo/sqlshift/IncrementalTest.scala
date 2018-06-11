@@ -1,14 +1,17 @@
 package com.goibibo.sqlshift
 
 import java.net.URL
+import java.util.Properties
 
 import com.goibibo.sqlshift.commons.Util
 import com.goibibo.sqlshift.models.Configurations
+import com.goibibo.sqlshift.offsetmanagement.zookeeper.ZKOffsetManager
 import com.goibibo.sqlshift.services.{DockerMySQLService, DockerZookeeperService}
 import com.typesafe.config.{Config, ConfigFactory}
 import com.whisk.docker.impl.spotify.DockerKitSpotify
 import com.whisk.docker.scalatest.DockerTestKit
-import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.functions.max
+import org.apache.spark.sql.{DataFrame, Row}
 import org.scalatest.time.{Second, Seconds, Span}
 import org.scalatest.{FlatSpec, GivenWhenThen, Matchers}
 import org.slf4j.{Logger, LoggerFactory}
@@ -40,10 +43,14 @@ class IncrementalTest extends FlatSpec
         val recordsFile: URL = this.getClass.getClassLoader.getResource(recordsFileName)
 
         private val fullDumpTables: Config = config.getConfig("tableNames.incremental")
+        val zkProp = new Properties()
+        zkProp.setProperty("zkquoram", config.getString("zookeeper.zkquoram"))
+        zkProp.setProperty("path", config.getString("zookeeper.path"))
         val nonSplitTable: String = fullDumpTables.getString("nonSplitTable")
         val splitTableWithoutDistKey: String = fullDumpTables.getString("splitTableWithoutDistKey")
         val splitTableWithDistKey: String = fullDumpTables.getString("splitTableWithDistKey")
-        val listOfTables = List(nonSplitTable, splitTableWithoutDistKey, splitTableWithDistKey)
+        val incrementalAutoIncremental: String = fullDumpTables.getString("incrementalAutoIncremental")
+        val listOfTables = List(nonSplitTable, splitTableWithoutDistKey, splitTableWithDistKey, incrementalAutoIncremental)
         var pAppConfiguration: Configurations.PAppConfiguration = _
 
         val columnName: String = config.getString("incrementalConditions.columnName")
@@ -95,9 +102,9 @@ class IncrementalTest extends FlatSpec
 
         val tableName: String = config.getString("redshift.schema") + "." + nonSplitTable
         logger.info(s"Fetching table $tableName from redshift.")
-        val redshiftFullDumpDataFrame: DataFrame = readTableFromRedshift(config, tableName)
+        val redshiftDataFrame: DataFrame = readTableFromRedshift(config, tableName)
         private val newDataFrame: DataFrame = psvFullDumpRdd.where(s"""$columnName <= "$firstToOffset"""")
-        redshiftFullDumpDataFrame.count should equal(newDataFrame.count)
+        redshiftDataFrame.count should equal(newDataFrame.count)
     }
 
     "Incremental Dump(Non Splittable) to redshift" should "have same records for first toOffset" in new PSVData {
@@ -106,9 +113,9 @@ class IncrementalTest extends FlatSpec
 
         val tableName: String = config.getString("redshift.schema") + "." + nonSplitTable
         logger.info(s"Fetching table $tableName from redshift.")
-        val redshiftFullDumpDataFrame: DataFrame = readTableFromRedshift(config, tableName)
+        val redshiftDataFrame: DataFrame = readTableFromRedshift(config, tableName)
         private val newDataFrame: DataFrame = psvFullDumpRdd.where(s"""$columnName <= "$firstToOffset"""")
-        redshiftFullDumpDataFrame.except(newDataFrame).count() should equal(0)
+        redshiftDataFrame.except(newDataFrame).count() should equal(0)
     }
 
     "Incremental Dump(Splittable With DistKey) to redshift" should "have equal count for first toOffset" in new PSVData {
@@ -117,9 +124,9 @@ class IncrementalTest extends FlatSpec
 
         val tableName: String = config.getString("redshift.schema") + "." + splitTableWithDistKey
         logger.info(s"Fetching table $tableName from redshift.")
-        val redshiftFullDumpDataFrame: DataFrame = readTableFromRedshift(config, tableName)
+        val redshiftDataFrame: DataFrame = readTableFromRedshift(config, tableName)
         private val newDataFrame: DataFrame = psvFullDumpRdd.where(s"""$columnName <= "$secondToOffset"""")
-        redshiftFullDumpDataFrame.count should equal(newDataFrame.count)
+        redshiftDataFrame.count should equal(newDataFrame.count)
     }
 
     "Incremental Dump(Splittable With DistKey) to redshift" should "have same records for second toOffset" in new PSVData {
@@ -153,6 +160,21 @@ class IncrementalTest extends FlatSpec
         val redshiftFullDumpDataFrame: DataFrame = readTableFromRedshift(config, tableName)
         private val newDataFrame: DataFrame = psvFullDumpRdd.where(s"""$columnName <= "$firstToOffset"""")
         redshiftFullDumpDataFrame.except(newDataFrame).count() should equal(0)
+    }
+
+    "AutoIncremental to redshift on column" should "have latest value of column in redshift & zookeeper" in new PSVData {
+
+        import fixtures._
+
+        val tableName: String = config.getString("redshift.schema") + "." + incrementalAutoIncremental
+        logger.info(s"Fetching table $tableName from redshift.")
+        private val offsetManager = new ZKOffsetManager(zkProp, tableName = tableName)
+        val redshiftDataFrame: DataFrame = readTableFromRedshift(config, tableName)
+        val Row(maxColumnValueInRedshiftDF: String) = redshiftDataFrame.agg(max(s"$columnName")).head
+        val Row(maxColumnValueInPSVDF: String) = psvFullDumpRdd.agg(max(s"$columnName")).head
+        private val dataInOffsetManager: String = offsetManager.getOffset.get.data.get.split("\\.").head
+        maxColumnValueInRedshiftDF should equal(maxColumnValueInPSVDF)
+        maxColumnValueInRedshiftDF should equal(dataInOffsetManager)
     }
 
     override def afterAll(): Unit = {

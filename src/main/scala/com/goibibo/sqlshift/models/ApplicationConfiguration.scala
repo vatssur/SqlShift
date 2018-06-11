@@ -52,5 +52,7 @@ case class TableConfiguration(
                                      isSplittable: Option[String],
                                      mergeKey: Option[String],
                                      fromOffset: Option[String],
-                                     toOffset: Option[String]
+                                     toOffset: Option[String],
+                                     appendOnly: Option[Boolean],
+                                     autoIncremental: Option[Boolean]
                              )
