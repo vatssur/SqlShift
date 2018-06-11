@@ -142,7 +142,10 @@ object SQLShift {
                 val internalConfigNew: InternalConfig = if (offsetManager.isDefined && incSettings.isDefined) {
                     val offset: Option[Offset] = offsetManager.get.getOffset
                     val fromOffset = if(incSettings.get.fromOffset.isEmpty && offset.isDefined) offset.get.data else incSettings.get.fromOffset
-                    configuration.internalConfig.copy(incrementalSettings =Some(incSettings.get.copy(fromOffset = fromOffset)))
+                    if(incSettings.get.autoIncremental.isDefined && incSettings.get.autoIncremental.get && incSettings.get.incrementalColumn.isDefined) {
+                        val (_, max): (String, String) = Util.getMinMax(configuration.mysqlConf, incSettings.get.incrementalColumn.get)
+                        configuration.internalConfig.copy(incrementalSettings = Some(incSettings.get.copy(fromOffset = fromOffset, toOffset = Some(max))))
+                    } else configuration.internalConfig.copy(incrementalSettings = Some(incSettings.get.copy(fromOffset = fromOffset)))
                 } else configuration.internalConfig
 
                 sqlContext.sparkContext.setJobDescription(s"$mySqlTableName => $redshiftTableName")
