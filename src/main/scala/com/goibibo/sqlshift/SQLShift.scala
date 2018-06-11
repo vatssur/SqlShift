@@ -148,6 +148,8 @@ object SQLShift {
                     } else configuration.internalConfig.copy(incrementalSettings = Some(incSettings.get.copy(fromOffset = fromOffset)))
                 } else configuration.internalConfig
 
+                val incSettingsNew: Option[IncrementalSettings] = internalConfigNew.incrementalSettings
+
                 sqlContext.sparkContext.setJobDescription(s"$mySqlTableName => $redshiftTableName")
                 val metricName = mySqlTableName + s".${configuration.redshiftConf.schema}"
                 try {
@@ -167,7 +169,7 @@ object SQLShift {
                         migrationTime = Some(migrationTime))
                     registerGauge(metricName = s"$metricName.migrationSuccess", value = 1)
                     // Setting Offset in OffsetManager
-                    if (offsetManager.isDefined && incSettings.isDefined && incSettings.get.toOffset.isDefined) {
+                    if (offsetManager.isDefined && incSettingsNew.isDefined && incSettingsNew.get.toOffset.isDefined) {
                         offsetManager.get.setOffset(Offset(data = incSettings.get.toOffset))
                     }
                 } catch {
