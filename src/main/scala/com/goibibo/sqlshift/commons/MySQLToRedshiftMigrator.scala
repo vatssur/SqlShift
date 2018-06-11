@@ -140,7 +140,7 @@ object MySQLToRedshiftMigrator {
     def getSnapshotCreationSql(redshiftTableName: String, redshiftStagingTableName:String, mergeKey:String,
                                fieldsToDeduplicateOn:Seq[String], incrementalColumn:String, tableDetails: TableDetails): String = {
         val tableColumns = "\"" + tableDetails.validFields.map(_.fieldName).mkString("\", \"") + "\""
-        val deduplicateFields = "\"" + fieldsToDeduplicateOn.validFields.map(_.fieldName).mkString("\", \"") + "\""
+        val deduplicateFields = "\"" + fieldsToDeduplicateOn.mkString("\", \"") + "\""
 
         s"""create temp table changed_records
                 |diststyle key
