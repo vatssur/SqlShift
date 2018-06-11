@@ -170,7 +170,7 @@ object SQLShift {
                     registerGauge(metricName = s"$metricName.migrationSuccess", value = 1)
                     // Setting Offset in OffsetManager
                     if (offsetManager.isDefined && incSettingsNew.isDefined && incSettingsNew.get.toOffset.isDefined) {
-                        offsetManager.get.setOffset(Offset(data = incSettings.get.toOffset))
+                        offsetManager.get.setOffset(Offset(data = incSettingsNew.get.toOffset))
                     }
                 } catch {
                     case e: Exception =>
