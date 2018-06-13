@@ -115,7 +115,7 @@ object Util {
             return 0
         }
         logger.info("Average Row size: {}, difference b/w min-max primary key: {}", avgRowSize, minMaxDiff)
-        val expectedNumberOfRows = (memory / avgRowSize).toDouble * 0.2
+        val expectedNumberOfRows = (memory / avgRowSize).toDouble
         logger.info("Expected number of rows: {}", expectedNumberOfRows)
 
         var partitions: Int = Math.ceil(minMaxDiff / expectedNumberOfRows).toInt
@@ -132,7 +132,11 @@ object Util {
         System.setProperty("com.amazonaws.services.s3.enableV4", "true")
         sc.hadoopConfiguration.set("fs.s3a.endpoint", "s3.ap-south-1.amazonaws.com")
         sc.hadoopConfiguration.set("spark.hadoop.mapreduce.fileoutputcommitter.algorithm.version", "2")
+        sc.getConf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
         sc.hadoopConfiguration.set("fs.s3a.fast.upload", "true")
+        sc.hadoopConfiguration.set("fs.s3a.fast.upload.buffer", "disk")
+        sc.hadoopConfiguration.set("fs.s3a.connection.maximum","1000")
+        sc.hadoopConfiguration.set("fs.s3a.attempts.maximum","30")
         (sc, sqlContext)
     }
 
