@@ -208,16 +208,16 @@ object MySQLToRedshiftMigrator {
         }
 
 
-        val (dropStagingTableString: String, mergeKey: String, shallVacuumAfterLoad: Boolean, 
+        val (dropStagingTableString: String, mergeKey: String, shallVacuumAfterLoad: Boolean,
             customFields: Seq[String],incrementalColumn: String, isSnapshot: Boolean, fieldsToDeduplicateOn: Option[Seq[String]]) = {
             internalConfig.incrementalSettings match {
                 case None =>
                     logger.info("No dropStagingTableString and No vacuum, internalConfig.incrementalSettings is None")
                     ("", "", false, Seq[String](),"", false, None)
-                case Some(IncrementalSettings(shallMerge, stagingTableMergeKey, vaccumAfterLoad, cs, true, incrementalColumn, fromOffset, toOffset, isSnapshot, fieldsToDeduplicateOn)) =>
+                case Some(IncrementalSettings(shallMerge, stagingTableMergeKey, vaccumAfterLoad, cs, true, incrementalColumn, fromOffset, toOffset, isSnapshot, fieldsToDeduplicateOn, _)) =>
                     logger.info("Incremental update is append only")
-                    ("", "", false, Seq[String](),incrementalColumn.get, false, None)
-                case Some(IncrementalSettings(shallMerge, stagingTableMergeKey, vaccumAfterLoad, cs, false, incrementalColumn, fromOffset, toOffset, isSnapshot, fieldsToDeduplicateOn)) =>
+                    ("", "", false, Seq[String](),incrementalColumn, false, None)
+                case Some(IncrementalSettings(shallMerge, stagingTableMergeKey, vaccumAfterLoad, cs, false, incrementalColumn, fromOffset, toOffset, isSnapshot, fieldsToDeduplicateOn, _)) =>
                     val dropStatingTableStr = if (shallMerge || isSnapshot) s"DROP TABLE IF EXISTS $redshiftStagingTableName;" else ""
 
                     logger.info(s"dropStatingTableStr = {}", dropStatingTableStr)
