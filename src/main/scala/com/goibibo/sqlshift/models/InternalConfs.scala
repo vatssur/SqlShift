@@ -42,6 +42,20 @@ private[sqlshift] object InternalConfs {
 
     //shallMerge: If false, new data will be appended, If true: It will be merged based on mergeKey
     //mergeKey: If mergeKey is not provided by default code uses primaryKey of the table as the mergeKey
+    /**
+      * Incremental Settings for SqlShift
+      *
+      * @param shallMerge        whether to merge data in redshift(upsert)
+      * @param mergeKey          if shell merge is true then on what key data to upsert in redshift
+      * @param shallVacuumAfterLoad
+      * @param customSelectFromStaging
+      * @param isAppendOnly      append only data to redshift
+      * @param incrementalColumn column on which incremental condition to apply
+      * @param fromOffset        from which offset incremental column value to bring from mysql
+      * @param toOffset          to which offset incremental column value to bring from mysql
+      * @param autoIncremental   when this is true then it doesn't require toOffset it will automatically fetch max
+      *                          value from database
+      */
     case class IncrementalSettings(shallMerge: Boolean = false,
                                    mergeKey: Option[String] = None,
                                    shallVacuumAfterLoad: Boolean = false,
@@ -51,7 +65,8 @@ private[sqlshift] object InternalConfs {
                                    fromOffset: Option[String] = None,
                                    toOffset: Option[String] = None,
                                    isSnapshot: Boolean = false,
-                                   fieldsToDeduplicateOn: Option[Seq[String]] = None)
+                                   fieldsToDeduplicateOn: Option[Seq[String]] = None,
+                                   autoIncremental: Option[Boolean] = None)
 
     //Defaults,
     //If shallSplit = None then shallSplit = true

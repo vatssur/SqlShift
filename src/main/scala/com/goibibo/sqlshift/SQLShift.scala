@@ -142,8 +142,13 @@ object SQLShift {
                 val internalConfigNew: InternalConfig = if (offsetManager.isDefined && incSettings.isDefined) {
                     val offset: Option[Offset] = offsetManager.get.getOffset
                     val fromOffset = if(incSettings.get.fromOffset.isEmpty && offset.isDefined) offset.get.data else incSettings.get.fromOffset
-                    configuration.internalConfig.copy(incrementalSettings =Some(incSettings.get.copy(fromOffset = fromOffset)))
+                    if(incSettings.get.autoIncremental.isDefined && incSettings.get.autoIncremental.get && incSettings.get.incrementalColumn.isDefined) {
+                        val (_, max): (String, String) = Util.getMinMax(configuration.mysqlConf, incSettings.get.incrementalColumn.get)
+                        configuration.internalConfig.copy(incrementalSettings = Some(incSettings.get.copy(fromOffset = fromOffset, toOffset = Some(max))))
+                    } else configuration.internalConfig.copy(incrementalSettings = Some(incSettings.get.copy(fromOffset = fromOffset)))
                 } else configuration.internalConfig
+
+                val incSettingsNew: Option[IncrementalSettings] = internalConfigNew.incrementalSettings
 
                 sqlContext.sparkContext.setJobDescription(s"$mySqlTableName => $redshiftTableName")
                 val metricName = mySqlTableName + s".${configuration.redshiftConf.schema}"
@@ -164,8 +169,8 @@ object SQLShift {
                         migrationTime = Some(migrationTime))
                     registerGauge(metricName = s"$metricName.migrationSuccess", value = 1)
                     // Setting Offset in OffsetManager
-                    if (offsetManager.isDefined && incSettings.isDefined && incSettings.get.toOffset.isDefined) {
-                        offsetManager.get.setOffset(Offset(data = incSettings.get.toOffset))
+                    if (offsetManager.isDefined && incSettingsNew.isDefined && incSettingsNew.get.toOffset.isDefined) {
+                        offsetManager.get.setOffset(Offset(data = incSettingsNew.get.toOffset))
                     }
                 } catch {
                     case e: Exception =>

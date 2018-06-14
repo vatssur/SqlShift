@@ -78,7 +78,7 @@ object Util {
       * @param whereCondition filter condition(without where clause)
       * @return tuple: (min, max)
       */
-    def getMinMax(mysqlDBConf: DBConfiguration, distKey: String, whereCondition: Option[String] = None): (Long, Long) = {
+    def getMinMax(mysqlDBConf: DBConfiguration, distKey: String, whereCondition: Option[String] = None): (String, String) = {
         val connection = RedshiftUtil.getConnection(mysqlDBConf)
 
         var query = s"SELECT min($distKey), max($distKey) FROM ${mysqlDBConf.db}.${mysqlDBConf.tableName}"
@@ -89,8 +89,8 @@ object Util {
         val result: ResultSet = connection.createStatement().executeQuery(query)
         try {
             result.next()
-            val min: Long = result.getLong(1)
-            val max: Long = result.getLong(2)
+            val min: String = result.getString(1)
+            val max: String = result.getString(2)
             logger.info(s"Minimum $distKey: $min :: Maximum $distKey: $max")
             (min, max)
         } finally {
@@ -288,10 +288,17 @@ object Util {
         else
             shallMergeJValue.extract[Boolean]
 
+        val autoIncrementalJValue: JValue = table \ "autoIncremental"
+        val autoIncremental: Option[Boolean] = if (autoIncrementalJValue == JNothing || autoIncrementalJValue == JNull)
+            Some(false)
+        else
+            Some(autoIncrementalJValue.extract[Boolean])
+
         val incrementalSettings: IncrementalSettings = IncrementalSettings(shallMerge = shallMerge, mergeKey = mergeKey,
             shallVacuumAfterLoad = shallVacuumAfterLoad, customSelectFromStaging = addColumn, isAppendOnly = isAppendOnly,
             incrementalColumn = incrementalColumn, fromOffset = fromOffset, toOffset = toOffset, isSnapshot = isSnapshot,
-            fieldsToDeduplicateOn = fieldsToDeduplicateOn)
+            fieldsToDeduplicateOn = fieldsToDeduplicateOn, autoIncremental = autoIncremental)
+
 
         val settings: Some[IncrementalSettings] = Some(incrementalSettings)
         internalConfig = InternalConfig(shallSplit = Some(isSplittable), distKey = distKey, incrementalSettings = settings,

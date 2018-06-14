@@ -73,7 +73,8 @@ object MySQLToRedshiftMigrator {
                                     None
                             }
 
-                            val minMax: (Long, Long) = Util.getMinMax(mysqlConfig, primaryKey, whereCondition)
+                            val minMaxTmp: (String, String) = Util.getMinMax(mysqlConfig, primaryKey, whereCondition)
+                            val minMax: (Long, Long) = (minMaxTmp._1.toLong, minMaxTmp._2.toLong)
                             val nr: Long = minMax._2 - minMax._1 + 1
 
                             val mapPartitions = internalConfig.mapPartitions match {
@@ -119,7 +120,7 @@ object MySQLToRedshiftMigrator {
                 val tableQuery = internalConfig.incrementalSettings match {
                     case Some(incrementalSettings) =>
                         val whereCondition = getWhereCondition(incrementalSettings)
-                        s"""(SELECT * from ${mysqlConfig.tableName}${if(whereCondition.isDefined) " WHERE " + whereCondition.get else ""}) AS A"""
+                        s"""(SELECT * from ${mysqlConfig.tableName}${if (whereCondition.isDefined) " WHERE " + whereCondition.get else ""}) AS A"""
                     case None => mysqlConfig.tableName
                 }
                 logger.info("Using single partition read query = {}", tableQuery)
@@ -212,12 +213,13 @@ object MySQLToRedshiftMigrator {
             internalConfig.incrementalSettings match {
                 case None =>
                     logger.info("No dropStagingTableString and No vacuum, internalConfig.incrementalSettings is None")
-                    ("", "", false, Seq[String](),"", false, Seq())
+                    ("", "", false, Seq[String](),"", false, None)
                 case Some(IncrementalSettings(shallMerge, stagingTableMergeKey, vaccumAfterLoad, cs, true, incrementalColumn, fromOffset, toOffset, isSnapshot, fieldsToDeduplicateOn)) =>
                     logger.info("Incremental update is append only")
-                    ("", "", false, Seq[String](),incrementalColumn.get, false, Seq())
+                    ("", "", false, Seq[String](),incrementalColumn.get, false, None)
                 case Some(IncrementalSettings(shallMerge, stagingTableMergeKey, vaccumAfterLoad, cs, false, incrementalColumn, fromOffset, toOffset, isSnapshot, fieldsToDeduplicateOn)) =>
                     val dropStatingTableStr = if (shallMerge || isSnapshot) s"DROP TABLE IF EXISTS $redshiftStagingTableName;" else ""
+
                     logger.info(s"dropStatingTableStr = {}", dropStatingTableStr)
                     val mKey: String = {
                         if (shallMerge || isSnapshot) {
