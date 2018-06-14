@@ -4,7 +4,7 @@ import java.util.Properties
 import java.util.regex._
 
 import com.goibibo.sqlshift.models.Configurations.{DBConfiguration, S3Config}
-import com.goibibo.sqlshift.models.InternalConfs.{IncrementalSettings, InternalConfig, TableDetails}
+import com.goibibo.sqlshift.models.InternalConfs.{IncrementalSettings, InternalConfig, TableDetails, DBField}
 import org.apache.spark.sql._
 import org.slf4j.{Logger, LoggerFactory}
 
@@ -138,6 +138,30 @@ object MySQLToRedshiftMigrator {
         (dataWithTypesFixed, tableDetails)
     }
 
+    def getSnapshotCreationSql(redshiftTableName: String, redshiftStagingTableName:String, mergeKey:String,
+                               fieldsToDeduplicateOn:Seq[String], incrementalColumn:String, tableDetails: TableDetails): String = {
+        val tableColumns = "\"" + tableDetails.validFields.map(_.fieldName).mkString("\", \"") + "\""
+        val deduplicateFields = "\"" + fieldsToDeduplicateOn.mkString("\", \"") + "\""
+
+        s"""create temp table changed_records
+                |diststyle key
+                |distkey("$mergeKey")
+                |sortkey("$mergeKey",$deduplicateFields) as
+                |(
+                |   select $redshiftStagingTableName.* from $redshiftStagingTableName
+                |   left join (select * from $redshiftTableName where endtime is null) o
+                |   using ("$mergeKey",$deduplicateFields)
+                |   where o."$mergeKey" is null
+                |);
+                |update $redshiftTableName set endtime = c."$incrementalColumn"
+                |from changed_records c
+                |where $redshiftTableName."$mergeKey" = c."$mergeKey" and $redshiftTableName.endtime is null;
+                |insert into $redshiftTableName($tableColumns)
+                |   select *, "$incrementalColumn" as starttime, null::timestamp as endtime
+                |   from changed_records;""".stripMargin
+    }
+
+
     /**
       * Store Dataframe to Redshift table. Drop table if exists.
       * It table doesn't exist it will create table.
@@ -167,10 +191,7 @@ object MySQLToRedshiftMigrator {
         val redshiftStagingTableName = redshiftTableName + stagingPrepend
         val dropTableString = RedshiftUtil.getDropCommand(redshiftConf)
         logger.info("dropTableString {}", dropTableString)
-        val createTableString = RedshiftUtil.getCreateTableString(tableDetails, redshiftConf)
-        //val redshiftStagingConf = redshiftConf.copy(tableName = redshiftConf.tableName + stagingPrepend)
-        val createStagingTableString = RedshiftUtil.getCreateTableString(tableDetails, redshiftConf, Some(redshiftStagingTableName))
-        logger.info("createTableString {}", createTableString)
+
         val shallOverwrite = internalConfig.shallOverwrite match {
             case None =>
                 internalConfig.incrementalSettings match {
@@ -186,21 +207,22 @@ object MySQLToRedshiftMigrator {
                 sow
         }
 
-        val dropAndCreateTableString = if (shallOverwrite) dropTableString + "\n" + createTableString else createTableString
 
-        val (dropStagingTableString: String, mergeKey: String, shallVacuumAfterLoad: Boolean, customFields: Seq[String]) = {
+        val (dropStagingTableString: String, mergeKey: String, shallVacuumAfterLoad: Boolean,
+            customFields: Seq[String],incrementalColumn: String, isSnapshot: Boolean, fieldsToDeduplicateOn: Option[Seq[String]]) = {
             internalConfig.incrementalSettings match {
                 case None =>
                     logger.info("No dropStagingTableString and No vacuum, internalConfig.incrementalSettings is None")
-                    ("", "", false, Seq[String]())
-                case Some(IncrementalSettings(shallMerge, stagingTableMergeKey, vaccumAfterLoad, cs, true, incrementalColumn, fromOffset, toOffset, _)) =>
+                    ("", "", false, Seq[String](),"", false, None)
+                case Some(IncrementalSettings(shallMerge, stagingTableMergeKey, vaccumAfterLoad, cs, true, incrementalColumn, fromOffset, toOffset, isSnapshot, fieldsToDeduplicateOn, _)) =>
                     logger.info("Incremental update is append only")
-                    ("", "", false, Seq[String]())
-                case Some(IncrementalSettings(shallMerge, stagingTableMergeKey, vaccumAfterLoad, cs, false, incrementalColumn, fromOffset, toOffset, _)) =>
-                    val dropStatingTableStr = if (shallMerge) s"DROP TABLE IF EXISTS $redshiftStagingTableName;" else ""
+                    ("", "", false, Seq[String](),incrementalColumn, false, None)
+                case Some(IncrementalSettings(shallMerge, stagingTableMergeKey, vaccumAfterLoad, cs, false, incrementalColumn, fromOffset, toOffset, isSnapshot, fieldsToDeduplicateOn, _)) =>
+                    val dropStatingTableStr = if (shallMerge || isSnapshot) s"DROP TABLE IF EXISTS $redshiftStagingTableName;" else ""
+
                     logger.info(s"dropStatingTableStr = {}", dropStatingTableStr)
                     val mKey: String = {
-                        if (shallMerge) {
+                        if (shallMerge || isSnapshot) {
                             stagingTableMergeKey match {
                                 case None =>
                                     logger.info("mergeKey is also not provided, we use primary key in this case {}",
@@ -230,25 +252,44 @@ object MySQLToRedshiftMigrator {
                             cf.toSeq
                         case None => Seq[String]()
                     }
-                    (dropStatingTableStr, mKey, vaccumAfterLoad, customFieldsI)
+                    (dropStatingTableStr, mKey, vaccumAfterLoad, customFieldsI, incrementalColumn.getOrElse(""),
+                      isSnapshot, fieldsToDeduplicateOn)
             }
         }
+
+        val extraFields = tableDetails.validFields ++ Seq(DBField("starttime","timestamp"), DBField("endtime","timestamp"))
+        val extraSortKeys = Seq(mergeKey, "starttime", "endtime")
+        val tableDetailsExtra = tableDetails.copy(validFields = extraFields, sortKeys = extraSortKeys)
+
+        val createTableString: String = if(isSnapshot){
+            RedshiftUtil.getCreateTableString(tableDetailsExtra, redshiftConf, None, true)
+        }
+        else {
+            RedshiftUtil.getCreateTableString(tableDetails, redshiftConf)
+        }
+        //val redshiftStagingConf = redshiftConf.copy(tableName = redshiftConf.tableName + stagingPrepend
+        val createStagingTableString = RedshiftUtil.getCreateTableString(tableDetails, redshiftConf, Some(redshiftStagingTableName))
+        logger.info("createTableString {}", createTableString)
+
+        val dropAndCreateTableString = if (shallOverwrite) dropTableString + "\n" + createTableString else createTableString
 
         val preActions: String = {
             redshiftConf.preLoadCmd.map(_ + ";" + "\n").getOrElse("") +
                     dropAndCreateTableString + {
-                if (dropStagingTableString != "") {
+                if (dropStagingTableString.nonEmpty && !isSnapshot) {
                     dropStagingTableString +
                             alterTableQuery(tableDetails, redshiftConf, customFields) +
-                            "\n" +
-                            createStagingTableString
+                            "\n" + createStagingTableString
+                } else if (dropStagingTableString.nonEmpty && isSnapshot) {
+                    dropStagingTableString + alterTableQuery(tableDetailsExtra, redshiftConf, customFields) +
+                      "\n" + createStagingTableString
                 } else {
                     ""
                 }
             }
         }
 
-        val stagingTablePostActions = if (dropStagingTableString != "") {
+        val stagingTablePostActions = if (dropStagingTableString.nonEmpty && !isSnapshot) {
             val tableColumns = "\"" + tableDetails.validFields.map(_.fieldName).mkString("\", \"") + "\""
 
             s"""DELETE FROM $redshiftTableName USING $redshiftStagingTableName
@@ -267,6 +308,10 @@ object MySQLToRedshiftMigrator {
                        |SELECT *, $customSelect FROM $redshiftStagingTableName;""".stripMargin
                 }
             }
+        } else if (dropStagingTableString.nonEmpty && isSnapshot){
+            if (fieldsToDeduplicateOn.isEmpty)
+                throw new RequiredFieldNotPresentException("fieldsToDeduplicateOn is not present")
+            getSnapshotCreationSql(redshiftTableName, redshiftStagingTableName, mergeKey, fieldsToDeduplicateOn.get, incrementalColumn, tableDetailsExtra)
         } else {
             ""
         }

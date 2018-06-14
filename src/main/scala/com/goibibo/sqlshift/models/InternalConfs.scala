@@ -64,6 +64,8 @@ private[sqlshift] object InternalConfs {
                                    incrementalColumn: Option[String] = None,
                                    fromOffset: Option[String] = None,
                                    toOffset: Option[String] = None,
+                                   isSnapshot: Boolean = false,
+                                   fieldsToDeduplicateOn: Option[Seq[String]] = None,
                                    autoIncremental: Option[Boolean] = None)
 
     //Defaults,

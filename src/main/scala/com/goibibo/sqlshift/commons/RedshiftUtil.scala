@@ -148,7 +148,7 @@ object RedshiftUtil {
         else s"${rc.tableName}"
     }
 
-    def getCreateTableString(td: TableDetails, rc: DBConfiguration, stagingTableName: Option[String] = None): String = {
+    def getCreateTableString(td: TableDetails, rc: DBConfiguration, stagingTableName: Option[String] = None, isSnapshot: Boolean = false): String = {
         val tableNameWithSchema = getTableNameWithSchema(rc)
         if (stagingTableName.isDefined) {
             val fieldNames = td.validFields.map(r => s"""\t"${r.fieldName}" """).mkString(",\n")
@@ -156,6 +156,19 @@ object RedshiftUtil {
                | CREATE TABLE ${stagingTableName.get} AS
                | SELECT $fieldNames FROM $tableNameWithSchema LIMIT 0
             """.stripMargin
+        } else if (isSnapshot){
+            val fieldNames = td.validFields.map(r => s"""\t"${r.fieldName}" ${r.fieldType} ENCODE ZSTD """).mkString(",\n")
+            val distributionKey = td.distributionKey match {
+                case None => "DISTSTYLE EVEN"
+                case Some(key) => s"""DISTSTYLE KEY \nDISTKEY ( "$key" ) """
+            }
+            val sortKeys = if (td.sortKeys.nonEmpty) "SORTKEY ( \"" + td.sortKeys.mkString("\", \"") + "\" )" else ""
+
+            s"""CREATE TABLE IF NOT EXISTS $tableNameWithSchema (
+               |    $fieldNames
+               |)
+               |$distributionKey
+               |$sortKeys ;""".stripMargin
         } else {
             val fieldNames = td.validFields.map(r => s"""\t"${r.fieldName}" ${r.fieldType} ENCODE ZSTD """).mkString(",\n")
             val distributionKey = td.distributionKey match {

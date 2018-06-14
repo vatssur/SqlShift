@@ -115,7 +115,7 @@ object Util {
             return 0
         }
         logger.info("Average Row size: {}, difference b/w min-max primary key: {}", avgRowSize, minMaxDiff)
-        val expectedNumberOfRows = (memory / avgRowSize).toDouble
+        val expectedNumberOfRows = (memory / avgRowSize).toDouble * 0.2
         logger.info("Expected number of rows: {}", expectedNumberOfRows)
 
         var partitions: Int = Math.ceil(minMaxDiff / expectedNumberOfRows).toInt
@@ -132,7 +132,11 @@ object Util {
         System.setProperty("com.amazonaws.services.s3.enableV4", "true")
         sc.hadoopConfiguration.set("fs.s3a.endpoint", "s3.ap-south-1.amazonaws.com")
         sc.hadoopConfiguration.set("spark.hadoop.mapreduce.fileoutputcommitter.algorithm.version", "2")
+        sc.getConf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
         sc.hadoopConfiguration.set("fs.s3a.fast.upload", "true")
+        sc.hadoopConfiguration.set("fs.s3a.fast.upload.buffer", "disk")
+        sc.hadoopConfiguration.set("fs.s3a.connection.maximum","1000")
+        sc.hadoopConfiguration.set("fs.s3a.attempts.maximum","30")
         (sc, sqlContext)
     }
 
@@ -260,6 +264,24 @@ object Util {
         else
             Some(toOffsetJValue.extract[String])
 
+        val isSnapshotValue: JValue = table \ "isSnapshot"
+        val isSnapshot: Boolean = if (isSnapshotValue != JNothing && isSnapshotValue != JNull) {
+            isSnapshotValue.extract[Boolean]
+        } else {
+            false
+        }
+        logger.info("Whether merge type is snapshot: {}", isSnapshot)
+
+        val fieldsToDeduplicateOnValue: JValue = table \ "fieldsToDeduplicateOn"
+        val fieldsToDeduplicateOn: Option[Seq[String]] = if (fieldsToDeduplicateOnValue != JNothing && fieldsToDeduplicateOnValue != JNull) {
+            val fieldsToDeduplicateOnSeq = fieldsToDeduplicateOnValue.extract[Seq[String]]
+            logger.info("Found deduplication fields:- {}", fieldsToDeduplicateOnSeq)
+            Some(fieldsToDeduplicateOnSeq)
+        } else {
+            logger.info("No deduplication fields found in configuration")
+            None
+        }
+
         val shallMergeJValue: JValue = table \ "shallMerge"
         val shallMerge: Boolean = if (shallMergeJValue == JNothing || shallMergeJValue == JNull)
             false
@@ -274,7 +296,9 @@ object Util {
 
         val incrementalSettings: IncrementalSettings = IncrementalSettings(shallMerge = shallMerge, mergeKey = mergeKey,
             shallVacuumAfterLoad = shallVacuumAfterLoad, customSelectFromStaging = addColumn, isAppendOnly = isAppendOnly,
-            incrementalColumn = incrementalColumn, fromOffset = fromOffset, toOffset = toOffset, autoIncremental = autoIncremental)
+            incrementalColumn = incrementalColumn, fromOffset = fromOffset, toOffset = toOffset, isSnapshot = isSnapshot,
+            fieldsToDeduplicateOn = fieldsToDeduplicateOn, autoIncremental = autoIncremental)
+
 
         val settings: Some[IncrementalSettings] = Some(incrementalSettings)
         internalConfig = InternalConfig(shallSplit = Some(isSplittable), distKey = distKey, incrementalSettings = settings,
