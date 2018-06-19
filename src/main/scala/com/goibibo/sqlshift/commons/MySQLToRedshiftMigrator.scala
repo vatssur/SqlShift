@@ -138,27 +138,40 @@ object MySQLToRedshiftMigrator {
         (dataWithTypesFixed, tableDetails)
     }
 
+    /**
+      * Queries for identifying changed records and updating the endtime of corresponding records in original table
+      *
+      * @param redshiftTableName        Original table
+      * @param redshiftStagingTableName Staging table containing new records
+      * @param mergeKey                 Key on which table will be merged
+      * @param fieldsToDeduplicateOn    A change in any of these fields should create a new record in original table
+      * @param incrementalColumn        Column containing the timestamp on which it is updated
+      * @param tableDetails             Contains all the table details like fieldnames, distkey and sortkey.
+      * @return
+      */
     def getSnapshotCreationSql(redshiftTableName: String, redshiftStagingTableName:String, mergeKey:String,
                                fieldsToDeduplicateOn:Seq[String], incrementalColumn:String, tableDetails: TableDetails): String = {
+
         val tableColumns = "\"" + tableDetails.validFields.map(_.fieldName).mkString("\", \"") + "\""
-        val deduplicateFields = "\"" + fieldsToDeduplicateOn.mkString("\", \"") + "\""
+        val deDuplicateFieldNames = "\"" + fieldsToDeduplicateOn.mkString("\", \"") + "\""
+        val deDuplicateCondition = fieldsToDeduplicateOn.map(x => "nvl(s.\""+ x +"\"::varchar,'') = nvl(o.\""+ x +"\"::varchar,'')").mkString(" and ")
 
         s"""create temp table changed_records
-                |diststyle key
-                |distkey("$mergeKey")
-                |sortkey("$mergeKey",$deduplicateFields) as
-                |(
-                |   select $redshiftStagingTableName.* from $redshiftStagingTableName
-                |   left join (select * from $redshiftTableName where endtime is null) o
-                |   using ("$mergeKey",$deduplicateFields)
-                |   where o."$mergeKey" is null
-                |);
-                |update $redshiftTableName set endtime = c."$incrementalColumn"
-                |from changed_records c
-                |where $redshiftTableName."$mergeKey" = c."$mergeKey" and $redshiftTableName.endtime is null;
-                |insert into $redshiftTableName($tableColumns)
-                |   select *, "$incrementalColumn" as starttime, null::timestamp as endtime
-                |   from changed_records;""".stripMargin
+           |diststyle key
+           |distkey("$mergeKey")
+           |sortkey("$mergeKey",$deDuplicateFieldNames) as
+           |(
+           |   select $redshiftStagingTableName.* from $redshiftStagingTableName
+           |   left join (select * from $redshiftTableName where endtime is null) o
+           |   on (s."$mergeKey" = o."$mergeKey" and $deDuplicateCondition)
+           |   where o."$mergeKey" is null
+           |);
+           |update $redshiftTableName set endtime = c."$incrementalColumn"
+           |from changed_records c
+           |where $redshiftTableName."$mergeKey" = c."$mergeKey" and $redshiftTableName.endtime is null;
+           |insert into $redshiftTableName($tableColumns)
+           |   select *, "$incrementalColumn" as starttime, null::timestamp as endtime
+           |   from changed_records;""".stripMargin
     }
 
 
