@@ -147,7 +147,7 @@ object MySQLToRedshiftMigrator {
       * @param fieldsToDeduplicateOn    A change in any of these fields should create a new record in original table
       * @param incrementalColumn        Column containing the timestamp on which it is updated
       * @param tableDetails             Contains all the table details like fieldnames, distkey and sortkey.
-      * @return
+      *
       */
     def getSnapshotCreationSql(redshiftTableName: String, redshiftStagingTableName:String, mergeKey:String,
                                fieldsToDeduplicateOn:Seq[String], incrementalColumn:String, tableDetails: TableDetails): String = {
@@ -161,7 +161,7 @@ object MySQLToRedshiftMigrator {
            |distkey("$mergeKey")
            |sortkey("$mergeKey",$deDuplicateFieldNames) as
            |(
-           |   select $redshiftStagingTableName.* from $redshiftStagingTableName
+           |   select s.* from $redshiftStagingTableName s
            |   left join (select * from $redshiftTableName where endtime is null) o
            |   on (s."$mergeKey" = o."$mergeKey" and $deDuplicateCondition)
            |   where o."$mergeKey" is null
