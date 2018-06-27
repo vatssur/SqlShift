@@ -161,7 +161,7 @@ object MySQLToRedshiftMigrator {
            |distkey("$mergeKey")
            |sortkey("$mergeKey",$deDuplicateFieldNames) as
            |(
-           |   select $redshiftStagingTableName.* from $redshiftStagingTableName s
+           |   select s.* from $redshiftStagingTableName s
            |   left join (select * from $redshiftTableName where endtime is null) o
            |   on (s."$mergeKey" = o."$mergeKey" and $deDuplicateCondition)
            |   where o."$mergeKey" is null
