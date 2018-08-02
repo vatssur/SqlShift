@@ -123,7 +123,11 @@ object SQLShift {
         var finalConfigurations: Seq[AppConfiguration] = Seq[AppConfiguration]()
 
         pAppConfiguration.configuration.filter { p =>
-            !isReRun || p.status.isEmpty || !p.status.get.isSuccessful
+            // Checking condition if it is rerun & Failed/Empty then reprocess
+            val runCondition = !isReRun || p.status.isEmpty || !p.status.get.isSuccessful
+            if(!runCondition)
+                finalConfigurations :+= p
+            runCondition
         }.foreach { configuration: AppConfiguration =>
             logger.info("Configuration: \n{}", configuration.toString)
             val mySqlTableName = s"${configuration.mysqlConf.db}.${configuration.mysqlConf.tableName}"
@@ -141,8 +145,8 @@ object SQLShift {
 
                 val internalConfigNew: InternalConfig = if (offsetManager.isDefined && incSettings.isDefined) {
                     val offset: Option[Offset] = offsetManager.get.getOffset
-                    val fromOffset = if(incSettings.get.fromOffset.isEmpty && offset.isDefined) offset.get.data else incSettings.get.fromOffset
-                    if(incSettings.get.autoIncremental.isDefined && incSettings.get.autoIncremental.get && incSettings.get.incrementalColumn.isDefined) {
+                    val fromOffset = if (incSettings.get.fromOffset.isEmpty && offset.isDefined) offset.get.data else incSettings.get.fromOffset
+                    if (incSettings.get.autoIncremental.isDefined && incSettings.get.autoIncremental.get && incSettings.get.incrementalColumn.isDefined) {
                         val (_, max): (String, String) = Util.getMinMax(configuration.mysqlConf, incSettings.get.incrementalColumn.get)
                         configuration.internalConfig.copy(incrementalSettings = Some(incSettings.get.copy(fromOffset = fromOffset, toOffset = Some(max))))
                     } else configuration.internalConfig.copy(incrementalSettings = Some(incSettings.get.copy(fromOffset = fromOffset)))
