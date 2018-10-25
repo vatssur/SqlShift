@@ -207,7 +207,7 @@ object MySQLToRedshiftMigrator {
 
         val shallOverwrite = internalConfig.shallOverwrite match {
             case None =>
-                internalConfig.incrementalSettings match {
+                internalConfig.incrementalSettings.get.incrementalColumn match {
                     case None =>
                         logger.info("internalConfig.shallOverwrite is None and internalConfig.incrementalSettings is None")
                         true

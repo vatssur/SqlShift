@@ -135,6 +135,15 @@ class FullDumpTest extends FlatSpec
         redshiftFullDumpDataFrame.count should equal(psvFullDumpRdd.count)
     }
 
+    "Re Full Dump(Non Splittable) to redshift" should "have equal count & same records" in new PSVData {
+        import fixtures._
+        val tableName: String = config.getString("redshift.schema") + "." + nonSplitTable
+        logger.info(s"Fetching table $tableName from redshift.")
+        val redshiftFullDumpDataFrame: DataFrame = readTableFromRedshift(config, tableName)
+
+        redshiftFullDumpDataFrame.count should equal(psvFullDumpRdd.count)
+    }
+
     override def afterAll(): Unit = {
         import fixtures._
         super.afterAll()
