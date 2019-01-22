@@ -207,7 +207,7 @@ object MySQLToRedshiftMigrator {
 
         val shallOverwrite = internalConfig.shallOverwrite match {
             case None =>
-                internalConfig.incrementalSettings match {
+                internalConfig.incrementalSettings.get.incrementalColumn match {
                     case None =>
                         logger.info("internalConfig.shallOverwrite is None and internalConfig.incrementalSettings is None")
                         true
@@ -287,7 +287,9 @@ object MySQLToRedshiftMigrator {
         val dropAndCreateTableString = if (shallOverwrite) dropTableString + "\n" + createTableString else createTableString
 
         val preActions: String = {
-            redshiftConf.preLoadCmd.map(_ + ";" + "\n").getOrElse("") +
+            redshiftConf.preLoadCmd.map(_.trim).map{ cmd =>
+                cmd + (if (cmd.endsWith(";")) "" else ";") + "\n"
+            }.getOrElse("") +
                     dropAndCreateTableString + {
                 if (dropStagingTableString.nonEmpty && !isSnapshot) {
                     dropStagingTableString +
@@ -330,8 +332,9 @@ object MySQLToRedshiftMigrator {
         }
 
         val postActions: String = Seq[String](stagingTablePostActions,
-            redshiftConf.postLoadCmd.map {
-                _.replace("{{s}}", redshiftStagingTableName)
+            redshiftConf.postLoadCmd.map(_.trim).map { cmd =>
+                val changedCmd = cmd.replace("{{s}}", redshiftStagingTableName)
+                changedCmd + (if (changedCmd.endsWith(";")) "" else ";") + "\n"
             }.getOrElse(""),
             dropStagingTableString
         ).filter(_.trim != "").mkString("\n")
