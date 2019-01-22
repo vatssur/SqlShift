@@ -26,7 +26,7 @@ object RedshiftUtil {
     def getJDBCUrl(conf: DBConfiguration): String = {
         val jdbcUrl = s"jdbc:${conf.database}://${conf.hostname}:${conf.portNo}/${conf.db}"
         if (conf.database.toLowerCase == "mysql")
-            jdbcUrl + "?zeroDateTimeBehavior=convertToNull"
+            jdbcUrl + "?zeroDateTimeBehavior=convertToNull&connectTimeout=60000"
         else jdbcUrl
     }
 
