@@ -294,10 +294,17 @@ object Util {
         else
             Some(autoIncrementalJValue.extract[Boolean])
 
+        val snapshotOptimizingFilterValue: JValue = table \ "snapshotOptimizingFilter"
+        val snapshotOptimizingFilter: Option[String] = if (snapshotOptimizingFilterValue == JNothing || snapshotOptimizingFilterValue == JNull)
+            None
+        else
+            Some(snapshotOptimizingFilterValue.extract[String])
+        logger.info("Business logic: {}", snapshotOptimizingFilter.orNull)
+
         val incrementalSettings: IncrementalSettings = IncrementalSettings(shallMerge = shallMerge, mergeKey = mergeKey,
             shallVacuumAfterLoad = shallVacuumAfterLoad, customSelectFromStaging = addColumn, isAppendOnly = isAppendOnly,
             incrementalColumn = incrementalColumn, fromOffset = fromOffset, toOffset = toOffset, isSnapshot = isSnapshot,
-            fieldsToDeduplicateOn = fieldsToDeduplicateOn, autoIncremental = autoIncremental)
+            fieldsToDeduplicateOn = fieldsToDeduplicateOn, snapshotOptimizingFilter = snapshotOptimizingFilter, autoIncremental = autoIncremental)
 
 
         val settings: Some[IncrementalSettings] = Some(incrementalSettings)
