@@ -155,7 +155,8 @@ object MySQLToRedshiftMigrator {
         val tableColumns = "\"" + tableDetails.validFields.map(_.fieldName).mkString("\", \"") + "\""
         val deDuplicateFieldNames = "\"" + fieldsToDeduplicateOn.mkString("\", \"") + "\""
         val deDuplicateCondition = fieldsToDeduplicateOn.map(x => "nvl(s.\""+ x +"\"::varchar,'') = nvl(o.\""+ x +"\"::varchar,'')").mkString(" and ")
-        val optimiserCondition = {if (optimiserFilter.nonEmpty) s""" and $optimiserFilter """ else ""}
+        val changedFilter = optimiserFilter.replace("{{o}}",redshiftTableName).replace("{{s}}",redshiftStagingTableName)
+        val optimiserCondition = {if (optimiserFilter.nonEmpty) s" and $changedFilter " else ""}
 
         s"""create temp table changed_records
            |diststyle key
