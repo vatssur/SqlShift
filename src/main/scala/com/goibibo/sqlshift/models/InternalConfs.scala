@@ -66,8 +66,8 @@ private[sqlshift] object InternalConfs {
                                    toOffset: Option[String] = None,
                                    isSnapshot: Boolean = false,
                                    fieldsToDeduplicateOn: Option[Seq[String]] = None,
-                                   autoIncremental: Option[Boolean] = None,
-                                   optimiserFilter: Option[String] = None
+                                   optimiserFilter: Option[String] = None,
+                                   autoIncremental: Option[Boolean] = None
                                   )
 
     //Defaults,
