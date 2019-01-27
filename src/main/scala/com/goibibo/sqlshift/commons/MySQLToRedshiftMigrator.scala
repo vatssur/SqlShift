@@ -223,7 +223,7 @@ object MySQLToRedshiftMigrator {
 
 
         val (dropStagingTableString: String, mergeKey: String, shallVacuumAfterLoad: Boolean,
-            customFields: Seq[String],incrementalColumn: String, isSnapshot: Boolean, fieldsToDeduplicateOn: Option[Seq[String]], optimserFilter: Option[String]) = {
+            customFields: Seq[String],incrementalColumn: String, isSnapshot: Boolean, fieldsToDeduplicateOn: Option[Seq[String]], optimserFilter: String) = {
             internalConfig.incrementalSettings match {
                 case None =>
                     logger.info("No dropStagingTableString and No vacuum, internalConfig.incrementalSettings is None")
