@@ -327,7 +327,7 @@ object MySQLToRedshiftMigrator {
         } else if (dropStagingTableString.nonEmpty && isSnapshot){
             if (fieldsToDeduplicateOn.isEmpty)
                 throw new RequiredFieldNotPresentException("fieldsToDeduplicateOn is not present")
-            getSnapshotCreationSql(redshiftTableName, redshiftStagingTableName, mergeKey, fieldsToDeduplicateOn.get, incrementalColumn, tableDetailsExtra, optimserFilter.getOrElse(""))
+            getSnapshotCreationSql(redshiftTableName, redshiftStagingTableName, mergeKey, fieldsToDeduplicateOn.get, incrementalColumn, tableDetailsExtra, optimserFilter.get)
         } else {
             ""
         }
