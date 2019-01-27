@@ -295,16 +295,16 @@ object Util {
             Some(autoIncrementalJValue.extract[Boolean])
 
         val optimserFilterValue: JValue = table \ "optimserFilter"
-        val optimserFilter: Option[String] = if (optimserFilterValue == JNothing || optimserFilterValue == JNull)
+        val optimiserFilter: Option[String] = if (optimserFilterValue == JNothing || optimserFilterValue == JNull)
             None
         else
             Some(optimserFilterValue.extract[String])
-        logger.info("Business logic: {}", optimserFilter.orNull)
+        logger.info("Business logic: {}", optimiserFilter.orNull)
 
         val incrementalSettings: IncrementalSettings = IncrementalSettings(shallMerge = shallMerge, mergeKey = mergeKey,
             shallVacuumAfterLoad = shallVacuumAfterLoad, customSelectFromStaging = addColumn, isAppendOnly = isAppendOnly,
             incrementalColumn = incrementalColumn, fromOffset = fromOffset, toOffset = toOffset, isSnapshot = isSnapshot,
-            fieldsToDeduplicateOn = fieldsToDeduplicateOn, autoIncremental = autoIncremental, optimserFilter = optimserFilter)
+            fieldsToDeduplicateOn = fieldsToDeduplicateOn, autoIncremental = autoIncremental, optimiserFilter = optimiserFilter)
 
 
         val settings: Some[IncrementalSettings] = Some(incrementalSettings)
