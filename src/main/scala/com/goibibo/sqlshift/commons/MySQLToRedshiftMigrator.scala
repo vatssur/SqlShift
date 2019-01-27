@@ -223,7 +223,7 @@ object MySQLToRedshiftMigrator {
 
 
         val (dropStagingTableString: String, mergeKey: String, shallVacuumAfterLoad: Boolean,
-            customFields: Seq[String],incrementalColumn: String, isSnapshot: Boolean, fieldsToDeduplicateOn: Option[Seq[String]], optimserFilter: String) = {
+            customFields: Seq[String],incrementalColumn: String, isSnapshot: Boolean, fieldsToDeduplicateOn: Option[Seq[String]], optimserFilter: Option[String]) = {
             internalConfig.incrementalSettings match {
                 case None =>
                     logger.info("No dropStagingTableString and No vacuum, internalConfig.incrementalSettings is None")
@@ -267,7 +267,7 @@ object MySQLToRedshiftMigrator {
                         case None => Seq[String]()
                     }
                     (dropStatingTableStr, mKey, vaccumAfterLoad, customFieldsI, incrementalColumn.getOrElse(""),
-                      isSnapshot, fieldsToDeduplicateOn, optimserFilter.getOrElse(""))
+                      isSnapshot, fieldsToDeduplicateOn, optimserFilter)
             }
         }
 
@@ -327,7 +327,7 @@ object MySQLToRedshiftMigrator {
         } else if (dropStagingTableString.nonEmpty && isSnapshot){
             if (fieldsToDeduplicateOn.isEmpty)
                 throw new RequiredFieldNotPresentException("fieldsToDeduplicateOn is not present")
-            getSnapshotCreationSql(redshiftTableName, redshiftStagingTableName, mergeKey, fieldsToDeduplicateOn.get, incrementalColumn, tableDetailsExtra, optimserFilter)
+            getSnapshotCreationSql(redshiftTableName, redshiftStagingTableName, mergeKey, fieldsToDeduplicateOn.get, incrementalColumn, tableDetailsExtra, optimserFilter.getOrElse(""))
         } else {
             ""
         }
